@@ -284,8 +284,8 @@ console.log(data.choices[0].message.content);`;
 
       {/* CREATE TOKEN MODAL */}
       {isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#161B26] p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm">
+          <div className="my-auto w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#161B26] p-6 shadow-2xl">
             <h3 className="font-semibold text-white">Generate Master Router Token</h3>
             <p className="text-xs text-[#8A94A6]">
               This token will have full routing access to all keys in your vault.

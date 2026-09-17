@@ -382,7 +382,7 @@ app.post('/api/v1/route', routerRateLimiter, async (req, res) => {
   // If no authorization provided and not from local dashboard origin, require master token
   const isDashboardDirect = req.headers['x-panel-origin'] === 'dashboard' || !authHeader;
 
-  const { provider, model, messages, temperature, max_tokens, stream, simulateRateLimitOnFirst } = req.body;
+  const { provider, model, messages, temperature, max_tokens, stream, simulateRateLimitOnFirst, gmailFilter } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({
@@ -401,6 +401,7 @@ app.post('/api/v1/route', routerRateLimiter, async (req, res) => {
     max_tokens,
     stream: Boolean(stream),
     simulateRateLimitOnFirst: Boolean(simulateRateLimitOnFirst),
+    gmailFilter: gmailFilter || (req.headers['x-gmail-tag'] as string) || undefined,
     endpoint: '/api/v1/route',
     authHeader,
   });

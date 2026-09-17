@@ -245,7 +245,7 @@ export default function App() {
       />
 
       {/* Main Content Area - Clean, Flat, High-Legibility Data Views */}
-      <div className="relative z-10 flex min-h-[calc(100vh-120px)] flex-col">
+      <div className="flex min-h-[calc(100vh-120px)] flex-col">
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
@@ -283,7 +283,11 @@ export default function App() {
               )}
 
               {activeTab === 'simulator' && (
-                <ContinuousFlowTester keys={keys} onRefreshLogs={handleRefreshLogs} />
+                <ContinuousFlowTester
+                  keys={keys}
+                  onRefreshLogs={handleRefreshLogs}
+                  selectedGmail={selectedGmail}
+                />
               )}
 
               {activeTab === 'tokens' && (

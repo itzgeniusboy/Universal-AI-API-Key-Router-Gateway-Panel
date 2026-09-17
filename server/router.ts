@@ -72,7 +72,7 @@ export async function dispatchAiRequest(params: DispatchParams): Promise<Dispatc
       : 'Hello from AI Gateway';
 
   while (attempt <= maxRetries) {
-    const selectedKey = routerStore.selectNextKey(targetProvider, excludedKeyIds, userId);
+    const selectedKey = routerStore.selectNextKey(targetProvider, excludedKeyIds, userId, params.gmailFilter);
 
     if (!selectedKey) {
       if (attempt === 0) {

@@ -174,9 +174,9 @@ export const UsageLogsView: React.FC<Props> = ({ logs, onClearLogs }) => {
 
       {/* Log Details Modal */}
       {selectedLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-white/[0.1] bg-[#161B26] p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm">
+          <div className="my-auto flex w-full max-w-lg max-h-[90vh] flex-col rounded-2xl border border-white/[0.1] bg-[#161B26] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/[0.06] p-5 pb-4 shrink-0">
               <div className="flex items-center space-x-2">
                 <ProviderIcon provider={selectedLog.provider} size={18} />
                 <h3 className="font-semibold text-white">Log Inspection: {selectedLog.id}</h3>
@@ -189,7 +189,7 @@ export const UsageLogsView: React.FC<Props> = ({ logs, onClearLogs }) => {
               </button>
             </div>
 
-            <div className="mt-4 space-y-4 text-xs">
+            <div className="overflow-y-auto p-5 space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3 rounded-xl border border-white/[0.04] bg-[#0E1116] p-3">
                 <div>
                   <span className="text-[#6C768A]">Timestamp:</span>
@@ -232,7 +232,7 @@ export const UsageLogsView: React.FC<Props> = ({ logs, onClearLogs }) => {
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end border-t border-white/[0.06] pt-4">
+            <div className="flex justify-end border-t border-white/[0.06] bg-[#161B26] p-4 shrink-0 rounded-b-2xl">
               <button
                 onClick={() => setSelectedLog(null)}
                 className="rounded-xl bg-[#5B6CFF] px-4 py-2 text-xs font-medium text-white hover:bg-[#4E5EEB]"

@@ -20,9 +20,10 @@ import { ProviderIcon } from './ProviderIcon';
 interface Props {
   keys: ApiKeyItem[];
   onRefreshLogs: () => void;
+  selectedGmail?: string;
 }
 
-export const ContinuousFlowTester: React.FC<Props> = ({ keys, onRefreshLogs }) => {
+export const ContinuousFlowTester: React.FC<Props> = ({ keys, onRefreshLogs, selectedGmail }) => {
   const [selectedProvider, setSelectedProvider] = useState<ProviderId | 'auto'>('auto');
   const [promptInput, setPromptInput] = useState(
     'Analyze the resilience of multi-key API rotation architectures for autonomous agents.'
@@ -57,6 +58,7 @@ export const ContinuousFlowTester: React.FC<Props> = ({ keys, onRefreshLogs }) =
           provider: selectedProvider,
           messages: [{ role: 'user', content: promptInput }],
           simulateRateLimitOnFirst: simulateRateLimit,
+          gmailFilter: selectedGmail && selectedGmail !== 'all' ? selectedGmail : undefined,
         }),
       });
 

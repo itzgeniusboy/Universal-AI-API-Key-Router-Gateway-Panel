@@ -274,7 +274,7 @@ export const KeyVaultView: React.FC<Props> = ({
             return (
               <div
                 key={key.id}
-                className={`relative rounded-2xl border p-5 transition backdrop-blur-md shadow-md ${
+                className={`relative rounded-2xl border p-5 transition-all backdrop-blur-md shadow-md hover:z-20 ${
                     !key.enabled
                     ? 'border-white/[0.04] bg-white/[0.01] opacity-60'
                     : key.status === 'rate-limited' || key.status === 'cooldown'
@@ -322,7 +322,7 @@ export const KeyVaultView: React.FC<Props> = ({
                       </span>
 
                       {/* Floating hover tooltip */}
-                      <div className="pointer-events-none absolute right-0 top-full z-50 mt-1 w-64 rounded-xl border border-white/[0.12] bg-[#14161A] p-2.5 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100 group-hover:pointer-events-auto">
+                      <div className="pointer-events-none absolute right-0 top-full z-50 mt-1 w-64 rounded-xl border border-white/[0.12] bg-[#14161A] p-2.5 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100">
                         <p className="font-semibold text-white mb-0.5">Priority Tier: P{key.priority}</p>
                         <p className="text-[11px] leading-relaxed text-[#9DA8BE]">
                           {key.priority === 1
@@ -470,9 +470,9 @@ export const KeyVaultView: React.FC<Props> = ({
 
       {/* ADD KEY MODAL */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
-          <div className="w-full max-w-lg rounded-2xl border border-white/[0.1] bg-[#14161A] p-6 shadow-2xl backdrop-blur-xl">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-md">
+          <div className="my-auto flex w-full max-w-lg max-h-[90vh] flex-col rounded-2xl border border-white/[0.1] bg-[#14161A] shadow-2xl backdrop-blur-xl">
+            <div className="flex items-center justify-between border-b border-white/[0.08] p-5 pb-4 shrink-0">
               <div className="flex items-center space-x-2">
                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#5B6CFF]/20 text-[#5B6CFF]">
                   <Lock className="h-4 w-4" />
@@ -487,171 +487,173 @@ export const KeyVaultView: React.FC<Props> = ({
               </button>
             </div>
 
-            <form onSubmit={handleCreateKey} className="mt-4 space-y-4">
-              {/* Provider Selector Grid */}
-              <div>
-                <label className="block text-xs font-medium text-[#C5CEE0]">Select AI Provider</label>
-                <div className="mt-1.5 grid max-h-36 grid-cols-3 gap-2 overflow-y-auto pr-1">
-                  {PROVIDERS.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setNewProvider(p.id)}
-                      className={`flex items-center space-x-2 rounded-xl border p-2 text-left text-xs transition ${
-                        newProvider === p.id
-                          ? 'border-[#5B6CFF] bg-[#5B6CFF]/15 text-white shadow-sm'
-                          : 'border-white/[0.06] bg-[#0B0D10]/70 text-[#8A94A6] hover:text-white'
-                      }`}
-                    >
-                      <ProviderIcon provider={p.id} size={14} />
-                      <span className="truncate">{p.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Raw Key Input */}
-              <div>
-                <label className="block text-xs font-medium text-[#C5CEE0]">API Secret Key</label>
-                <input
-                  id="modal-raw-key-input"
-                  type="password"
-                  placeholder="e.g. sk-..., gsk_..., AIzaSy..."
-                  value={newRawKey}
-                  onChange={(e) => handleKeyInputChange(e.target.value)}
-                  required
-                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs font-mono text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
-                />
-                <span className="mt-1 block text-[11px] text-[#717B8F]">
-                  Encrypted at rest with AES-256-GCM. Never logged or exposed to client apps.
-                </span>
-              </div>
-
-              {/* Label */}
-              <div>
-                <label className="block text-xs font-medium text-[#C5CEE0]">Key Friendly Label</label>
-                <input
-                  type="text"
-                  placeholder={`e.g. Personal ${newProvider.toUpperCase()} #1`}
-                  value={newLabel}
-                  onChange={(e) => setNewLabel(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
-                />
-              </div>
-
-              {/* Gmail Identity Tag Selection */}
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-medium text-[#C5CEE0]">
-                    Assign to Connected Gmail Account
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setShowQuickAddGmail(!showQuickAddGmail)}
-                    className="text-[11px] text-[#5B6CFF] hover:underline"
-                  >
-                    {showQuickAddGmail ? 'Select Existing' : '+ Connect New Gmail Tag'}
-                  </button>
-                </div>
-
-                {showQuickAddGmail ? (
-                  <div className="mt-1.5">
-                    <input
-                      type="email"
-                      placeholder="your.account@gmail.com"
-                      value={quickGmailInput}
-                      onChange={(e) => setQuickGmailInput(e.target.value)}
-                      className="w-full rounded-xl border border-[#5B6CFF]/50 bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:outline-none"
-                    />
-                  </div>
-                ) : (
-                  <select
-                    value={newGmailTag}
-                    onChange={(e) => setNewGmailTag(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white focus:border-[#5B6CFF] focus:outline-none"
-                  >
-                    {gmailAccounts.map((acc) => (
-                      <option key={acc.id} value={acc.email}>
-                        {acc.email} ({acc.name || 'Account'})
-                      </option>
+            <form onSubmit={handleCreateKey} className="flex flex-col overflow-hidden">
+              <div className="overflow-y-auto p-5 space-y-4 max-h-[calc(90vh-140px)]">
+                {/* Provider Selector Grid */}
+                <div>
+                  <label className="block text-xs font-medium text-[#C5CEE0]">Select AI Provider</label>
+                  <div className="mt-1.5 grid max-h-36 grid-cols-3 gap-2 overflow-y-auto pr-1">
+                    {PROVIDERS.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setNewProvider(p.id)}
+                        className={`flex items-center space-x-2 rounded-xl border p-2 text-left text-xs transition ${
+                          newProvider === p.id
+                            ? 'border-[#5B6CFF] bg-[#5B6CFF]/15 text-white shadow-sm'
+                            : 'border-white/[0.06] bg-[#0B0D10]/70 text-[#8A94A6] hover:text-white'
+                        }`}
+                      >
+                        <ProviderIcon provider={p.id} size={14} />
+                        <span className="truncate">{p.name}</span>
+                      </button>
                     ))}
-                  </select>
+                  </div>
+                </div>
+
+                {/* Raw Key Input */}
+                <div>
+                  <label className="block text-xs font-medium text-[#C5CEE0]">API Secret Key</label>
+                  <input
+                    id="modal-raw-key-input"
+                    type="password"
+                    placeholder="e.g. sk-..., gsk_..., AIzaSy..."
+                    value={newRawKey}
+                    onChange={(e) => handleKeyInputChange(e.target.value)}
+                    required
+                    className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs font-mono text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
+                  />
+                  <span className="mt-1 block text-[11px] text-[#717B8F]">
+                    Encrypted at rest with AES-256-GCM. Never logged or exposed to client apps.
+                  </span>
+                </div>
+
+                {/* Label */}
+                <div>
+                  <label className="block text-xs font-medium text-[#C5CEE0]">Key Friendly Label</label>
+                  <input
+                    type="text"
+                    placeholder={`e.g. Personal ${newProvider.toUpperCase()} #1`}
+                    value={newLabel}
+                    onChange={(e) => setNewLabel(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
+                  />
+                </div>
+
+                {/* Gmail Identity Tag Selection */}
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-medium text-[#C5CEE0]">
+                      Assign to Connected Gmail Account
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickAddGmail(!showQuickAddGmail)}
+                      className="text-[11px] text-[#5B6CFF] hover:underline"
+                    >
+                      {showQuickAddGmail ? 'Select Existing' : '+ Connect New Gmail Tag'}
+                    </button>
+                  </div>
+
+                  {showQuickAddGmail ? (
+                    <div className="mt-1.5">
+                      <input
+                        type="email"
+                        placeholder="your.account@gmail.com"
+                        value={quickGmailInput}
+                        onChange={(e) => setQuickGmailInput(e.target.value)}
+                        className="w-full rounded-xl border border-[#5B6CFF]/50 bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <select
+                      value={newGmailTag}
+                      onChange={(e) => setNewGmailTag(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white focus:border-[#5B6CFF] focus:outline-none"
+                    >
+                      {gmailAccounts.map((acc) => (
+                        <option key={acc.id} value={acc.email}>
+                          {acc.email} ({acc.name || 'Account'})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Priority Selection with Tooltips */}
+                <div>
+                  <div className="flex items-center space-x-1.5">
+                    <label className="block text-xs font-medium text-[#C5CEE0]">
+                      Rotation Priority / Weight
+                    </label>
+                    <div className="group relative cursor-help">
+                      <HelpCircle className="h-3.5 w-3.5 text-[#5B6CFF]/80 group-hover:text-[#8C9BFF] transition-colors" />
+                      <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-white/[0.12] bg-[#14161A] p-3 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100">
+                        <p className="font-semibold text-white mb-1">Rotation Priority Tiers</p>
+                        <p className="text-[11px] leading-relaxed text-[#9DA8BE]">
+                          <strong className="text-white">P1 (Primary):</strong> First line of routing. Requests use healthy P1 keys.<br />
+                          <strong className="text-white">P2 (Secondary):</strong> Standby backup if P1 keys hit rate limits or downtime.<br />
+                          <strong className="text-white">P3 (Emergency):</strong> Ultimate fallback pool for 100% zero-drop uptime.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-1.5 grid grid-cols-3 gap-2">
+                    {[
+                      { val: 1, title: 'P1 - Primary', desc: 'Lower number = tried first in rotation' },
+                      { val: 2, title: 'P2 - Secondary', desc: 'Rotated if P1 is busy' },
+                      { val: 3, title: 'P3 - Fallback', desc: 'Emergency backup' },
+                    ].map((p) => (
+                      <button
+                        key={p.val}
+                        type="button"
+                        onClick={() => setNewPriority(p.val)}
+                        className={`rounded-xl border p-2 text-left text-xs transition ${
+                          newPriority === p.val
+                            ? 'border-[#5B6CFF] bg-[#5B6CFF]/15 text-white'
+                            : 'border-white/[0.06] bg-[#0B0D10] text-[#8A94A6] hover:text-white'
+                        }`}
+                      >
+                        <div className="font-semibold">{p.title}</div>
+                        <div className="text-[10px] text-[#6C768A] leading-tight mt-0.5">{p.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* If Custom Provider: Base URL & Auth Header */}
+                {newProvider === 'custom' && (
+                  <div className="space-y-3 rounded-xl border border-white/[0.06] bg-[#0B0D10]/50 p-3">
+                    <div>
+                      <label className="block text-xs font-medium text-[#C5CEE0]">
+                        Custom OpenAI-Compatible Endpoint URL
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="https://your-custom-llm-host.com/v1/chat/completions"
+                        value={newCustomBaseUrl}
+                        onChange={(e) => setNewCustomBaseUrl(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[#C5CEE0]">
+                        Custom Authorization Header (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Bearer ${KEY} or api-key: ${KEY}"
+                        value={newCustomAuthHeader}
+                        onChange={(e) => setNewCustomAuthHeader(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
+                      />
+                    </div>
+                  </div>
                 )}
               </div>
 
-              {/* Priority Selection with Tooltips */}
-              <div>
-                <div className="flex items-center space-x-1.5">
-                  <label className="block text-xs font-medium text-[#C5CEE0]">
-                    Rotation Priority / Weight
-                  </label>
-                  <div className="group relative cursor-help">
-                    <HelpCircle className="h-3.5 w-3.5 text-[#5B6CFF]/80 group-hover:text-[#8C9BFF] transition-colors" />
-                    <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-white/[0.12] bg-[#14161A] p-3 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100 group-hover:pointer-events-auto">
-                      <p className="font-semibold text-white mb-1">Rotation Priority Tiers</p>
-                      <p className="text-[11px] leading-relaxed text-[#9DA8BE]">
-                        <strong className="text-white">P1 (Primary):</strong> First line of routing. Requests use healthy P1 keys.<br />
-                        <strong className="text-white">P2 (Secondary):</strong> Standby backup if P1 keys hit rate limits or downtime.<br />
-                        <strong className="text-white">P3 (Emergency):</strong> Ultimate fallback pool for 100% zero-drop uptime.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-1.5 grid grid-cols-3 gap-2">
-                  {[
-                    { val: 1, title: 'P1 - Primary', desc: 'Lower number = tried first in rotation' },
-                    { val: 2, title: 'P2 - Secondary', desc: 'Rotated if P1 is busy' },
-                    { val: 3, title: 'P3 - Fallback', desc: 'Emergency backup' },
-                  ].map((p) => (
-                    <button
-                      key={p.val}
-                      type="button"
-                      onClick={() => setNewPriority(p.val)}
-                      className={`rounded-xl border p-2 text-left text-xs transition ${
-                        newPriority === p.val
-                          ? 'border-[#5B6CFF] bg-[#5B6CFF]/15 text-white'
-                          : 'border-white/[0.06] bg-[#0B0D10] text-[#8A94A6] hover:text-white'
-                      }`}
-                    >
-                      <div className="font-semibold">{p.title}</div>
-                      <div className="text-[10px] text-[#6C768A] leading-tight mt-0.5">{p.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* If Custom Provider: Base URL & Auth Header */}
-              {newProvider === 'custom' && (
-                <div className="space-y-3 rounded-xl border border-white/[0.06] bg-[#0B0D10]/50 p-3">
-                  <div>
-                    <label className="block text-xs font-medium text-[#C5CEE0]">
-                      Custom OpenAI-Compatible Endpoint URL
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="https://your-custom-llm-host.com/v1/chat/completions"
-                      value={newCustomBaseUrl}
-                      onChange={(e) => setNewCustomBaseUrl(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-[#C5CEE0]">
-                      Custom Authorization Header (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Bearer ${KEY} or api-key: ${KEY}"
-                      value={newCustomAuthHeader}
-                      onChange={(e) => setNewCustomAuthHeader(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
-                    />
-                  </div>
-                </div>
-              )}
-
               {/* Submit Buttons */}
-              <div className="mt-6 flex items-center justify-end space-x-3 border-t border-white/[0.06] pt-4">
+              <div className="flex items-center justify-end space-x-3 border-t border-white/[0.06] bg-[#14161A] p-4 shrink-0 rounded-b-2xl">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
@@ -675,8 +677,8 @@ export const KeyVaultView: React.FC<Props> = ({
 
       {/* EDIT KEY MODAL */}
       {editingKey && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
-          <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#14161A] p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-md">
+          <div className="my-auto w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#14161A] p-6 shadow-2xl">
             <h3 className="font-semibold text-white">Edit Key Configuration</h3>
             <p className="text-xs text-[#8A94A6]">Update label, Gmail tag, or rotation priority</p>
 

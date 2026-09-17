@@ -121,11 +121,11 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({ className = '' }) => {
   }
 
   return (
-    <div className={`absolute inset-0 pointer-events-none overflow-hidden ${className}`}>
+    <div className={`absolute inset-0 pointer-events-none overflow-hidden z-0 ${className}`}>
       <Canvas
         camera={{ position: [0, 0, 6], fov: 45 }}
         gl={{ alpha: true, antialias: true, powerPreference: 'low-power' }}
-        style={{ background: 'transparent' }}
+        style={{ background: 'transparent', pointerEvents: 'none' }}
       >
         <ambientLight intensity={0.4} color="#C5CEE0" />
         <directionalLight position={[4, 5, 3]} intensity={0.6} color="#8C9BFF" />

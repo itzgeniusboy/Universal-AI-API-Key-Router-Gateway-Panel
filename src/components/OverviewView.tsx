@@ -321,7 +321,7 @@ export const OverviewView: React.FC<Props> = ({
               </span>
 
               {/* Hover Tooltip explaining Rotation Strategy */}
-              <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-72 -translate-x-1/2 rounded-xl border border-white/[0.12] bg-[#14161A] p-3 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100 group-hover:pointer-events-auto">
+              <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-72 -translate-x-1/2 rounded-xl border border-white/[0.12] bg-[#14161A] p-3 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100">
                 <p className="font-semibold text-white mb-1 flex items-center gap-1.5">
                   <RefreshCw className="h-3.5 w-3.5 text-[#5B6CFF]" /> Rotation Strategy
                 </p>

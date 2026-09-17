@@ -76,7 +76,7 @@ export const SettingsView: React.FC<Props> = ({
                   <label className="block font-medium text-[#C5CEE0]">Key Selection Algorithm (Rotation Strategy)</label>
                   <div className="group relative cursor-help">
                     <HelpCircle className="h-3.5 w-3.5 text-[#5B6CFF]/80 group-hover:text-[#8C9BFF] transition-colors" />
-                    <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-white/[0.12] bg-[#14161A] p-3 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100 group-hover:pointer-events-auto">
+                    <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-white/[0.12] bg-[#14161A] p-3 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100">
                       <p className="font-semibold text-white mb-1">Rotation Strategy</p>
                       <p className="text-[11px] leading-relaxed text-[#9DA8BE]">
                         Determines the routing algorithm used across active keys: <strong className="text-white">Priority First</strong> routes to highest priority keys and reserves lower tiers as emergency backups; <strong className="text-white">Round-Robin</strong> distributes load equally across all matching keys; <strong className="text-white">Least Recently Used</strong> balances lifetime wear.
@@ -129,7 +129,7 @@ export const SettingsView: React.FC<Props> = ({
                     <label className="font-medium text-[#C5CEE0]">Rate-Limit Cooldown Duration</label>
                     <div className="group relative cursor-help">
                       <HelpCircle className="h-3.5 w-3.5 text-[#5B6CFF]/80 group-hover:text-[#8C9BFF] transition-colors" />
-                      <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-white/[0.12] bg-[#14161A] p-3 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100 group-hover:pointer-events-auto">
+                      <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-white/[0.12] bg-[#14161A] p-3 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100">
                         <p className="font-semibold text-white mb-1">Cooldown Quarantine</p>
                         <p className="text-[11px] leading-relaxed text-[#9DA8BE]">
                           When an upstream provider returns HTTP 429 (Rate Limit), the gateway immediately flags that key into cooldown. During cooldown, traffic routes to alternate healthy keys. Once the timer expires, the router sends a lightweight canary request to restore the key into service.

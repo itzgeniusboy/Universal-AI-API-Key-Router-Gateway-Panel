@@ -364,7 +364,7 @@ class PersistentRouterStore {
     return Number(res.changes) > 0;
   }
 
-  public selectNextKey(provider: ProviderId, excludedKeyIds: string[] = [], userId = 'default-user'): ApiKeyItem | null {
+  public selectNextKey(provider: ProviderId, excludedKeyIds: string[] = [], userId = 'default-user', gmailFilter?: string): ApiKeyItem | null {
     const now = Date.now();
     const db = getDatabase();
     const rows = db.prepare(`
@@ -377,7 +377,7 @@ class PersistentRouterStore {
     // Filter candidate keys:
     // 1. Not in excludedKeyIds
     // 2. Not in active cooldown
-    const candidateKeys: ApiKeyItem[] = rows
+    let candidateKeys: ApiKeyItem[] = rows
       .map((r) => ({
         id: r.id,
         provider: r.provider as ProviderId,
@@ -404,6 +404,14 @@ class PersistentRouterStore {
       });
 
     if (candidateKeys.length === 0) return null;
+
+    // If gmailFilter specified and not 'all', prefer keys matching this tag
+    if (gmailFilter && gmailFilter !== 'all') {
+      const taggedKeys = candidateKeys.filter((k) => k.gmailTag === gmailFilter);
+      if (taggedKeys.length > 0) {
+        candidateKeys = taggedKeys;
+      }
+    }
 
     const settings = this.getSettings(userId);
 
