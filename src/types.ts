@@ -15,7 +15,7 @@ export type ProviderId =
   | 'bedrock'
   | 'custom';
 
-export type KeyStatus = 'active' | 'rate-limited' | 'cooldown' | 'invalid' | 'expired';
+export type KeyStatus = 'active' | 'rate-limited' | 'cooldown' | 'invalid' | 'expired' | 'error';
 
 export type RotationStrategy = 'round-robin' | 'least-recently-used' | 'priority-weight';
 
@@ -46,7 +46,7 @@ export interface ApiKeyItem {
   enabled: boolean;
   customBaseUrl?: string;
   customAuthHeader?: string;
-  cooldownUntil?: number | null;
+  cooldownUntil?: number | string | null;
   lastLatencyMs?: number;
 }
 
@@ -64,7 +64,7 @@ export interface RouterToken {
   id: string;
   label: string;
   tokenPrefix: string;
-  tokenHash: string;
+  tokenHash?: string;
   createdAt: string;
   lastUsed: string | null;
   totalCalls: number;
@@ -96,4 +96,11 @@ export interface RouterSettings {
   cooldownSeconds: number;
   rateLimitTolerance: number;
   logRetentionDays: number;
+}
+
+export interface UserProfile {
+  userId: string;
+  email: string;
+  name: string;
+  avatar?: string;
 }

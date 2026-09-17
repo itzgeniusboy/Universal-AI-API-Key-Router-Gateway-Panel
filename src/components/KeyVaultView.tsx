@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   Filter,
+  HelpCircle,
   Lock,
   Plus,
   Power,
@@ -41,6 +42,7 @@ interface Props {
   onUpdateKey: (id: string, updates: Partial<ApiKeyItem>) => Promise<void>;
   isAddModalOpen: boolean;
   setIsAddModalOpen: (open: boolean) => void;
+  isLoading?: boolean;
 }
 
 export const KeyVaultView: React.FC<Props> = ({
@@ -55,6 +57,7 @@ export const KeyVaultView: React.FC<Props> = ({
   onUpdateKey,
   isAddModalOpen,
   setIsAddModalOpen,
+  isLoading = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [providerFilter, setProviderFilter] = useState<string>('all');
@@ -66,12 +69,18 @@ export const KeyVaultView: React.FC<Props> = ({
   const [newProvider, setNewProvider] = useState<ProviderId>('openai');
   const [newLabel, setNewLabel] = useState('');
   const [newRawKey, setNewRawKey] = useState('');
+  const defaultAccountEmail = gmailAccounts[0]?.email || '';
   const [newGmailTag, setNewGmailTag] = useState(
-    selectedGmail !== 'all' ? selectedGmail : (gmailAccounts[0]?.email || 'itzraviking@gmail.com')
+    selectedGmail !== 'all' ? selectedGmail : defaultAccountEmail
   );
   const [newPriority, setNewPriority] = useState(1);
   const [newCustomBaseUrl, setNewCustomBaseUrl] = useState('');
+  const [newCustomAuthHeader, setNewCustomAuthHeader] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Quick Inline Add Gmail
+  const [showQuickAddGmail, setShowQuickAddGmail] = useState(false);
+  const [quickGmailInput, setQuickGmailInput] = useState('');
 
   // Edit Key Modal State
   const [editingKey, setEditingKey] = useState<ApiKeyItem | null>(null);
@@ -93,17 +102,21 @@ export const KeyVaultView: React.FC<Props> = ({
 
     setIsSubmitting(true);
     try {
+      const tagToUse = quickGmailInput.trim() || newGmailTag || defaultAccountEmail || 'unassigned@gmail.com';
       await onAddKey({
         provider: newProvider,
         label: newLabel.trim() || `${newProvider.toUpperCase()} Key`,
         rawKey: newRawKey.trim(),
-        gmailTag: newGmailTag.trim(),
+        gmailTag: tagToUse,
         priority: newPriority,
         customBaseUrl: newProvider === 'custom' ? newCustomBaseUrl : undefined,
+        customAuthHeader: newProvider === 'custom' ? newCustomAuthHeader : undefined,
       });
       // Reset form
       setNewRawKey('');
       setNewLabel('');
+      setQuickGmailInput('');
+      setShowQuickAddGmail(false);
       setIsAddModalOpen(false);
     } finally {
       setIsSubmitting(false);
@@ -138,8 +151,8 @@ export const KeyVaultView: React.FC<Props> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Filter & Search Bar */}
-      <div className="flex flex-col gap-4 rounded-2xl border border-white/[0.08] bg-[#141720]/70 p-4 backdrop-blur-sm md:flex-row md:items-center md:justify-between">
+      {/* Top Filter & Search Bar with Glassmorphism */}
+      <div className="flex flex-col gap-4 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4 backdrop-blur-md md:flex-row md:items-center md:justify-between shadow-lg">
         <div className="flex flex-wrap items-center gap-3">
           {/* Search Box */}
           <div className="relative min-w-[240px]">
@@ -147,21 +160,21 @@ export const KeyVaultView: React.FC<Props> = ({
             <input
               id="search-keys-input"
               type="text"
-              placeholder="Search by label or masked key..."
+              placeholder="Search keys by label, masked prefix..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-xl border border-white/[0.08] bg-[#0E1116] py-2 pl-9 pr-4 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
+              className="w-full rounded-xl border border-white/[0.08] bg-[#0B0D10]/80 py-2 pl-9 pr-4 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
             />
           </div>
 
-          {/* Provider Filter */}
+          {/* Provider Filter Dropdown */}
           <div className="flex items-center space-x-2">
             <Filter className="h-3.5 w-3.5 text-[#6C768A]" />
             <select
               id="provider-filter-select"
               value={providerFilter}
               onChange={(e) => setProviderFilter(e.target.value)}
-              className="rounded-xl border border-white/[0.08] bg-[#0E1116] px-3 py-2 text-xs text-[#C5CEE0] focus:border-[#5B6CFF] focus:outline-none"
+              className="rounded-xl border border-white/[0.08] bg-[#0B0D10]/80 px-3 py-2 text-xs text-[#C5CEE0] focus:border-[#5B6CFF] focus:outline-none"
             >
               <option value="all">All Providers ({keys.length})</option>
               {PROVIDERS.map((p) => {
@@ -175,19 +188,22 @@ export const KeyVaultView: React.FC<Props> = ({
             </select>
           </div>
 
-          {/* Gmail Filter */}
+          {/* Gmail Tag Filter Dropdown */}
           <select
             id="gmail-filter-select"
             value={selectedGmail}
             onChange={(e) => setSelectedGmail(e.target.value)}
-            className="rounded-xl border border-white/[0.08] bg-[#0E1116] px-3 py-2 text-xs text-[#C5CEE0] focus:border-[#5B6CFF] focus:outline-none"
+            className="rounded-xl border border-white/[0.08] bg-[#0B0D10]/80 px-3 py-2 text-xs text-[#C5CEE0] focus:border-[#5B6CFF] focus:outline-none"
           >
             <option value="all">All Gmail Tags</option>
-            {gmailAccounts.map((acc) => (
-              <option key={acc.id} value={acc.email}>
-                {acc.email}
-              </option>
-            ))}
+            {gmailAccounts.map((acc) => {
+              const count = keys.filter((k) => k.gmailTag === acc.email).length;
+              return (
+                <option key={acc.id} value={acc.email}>
+                  {acc.email} {count > 0 ? `(${count} keys)` : ''}
+                </option>
+              );
+            })}
           </select>
         </div>
 
@@ -202,26 +218,50 @@ export const KeyVaultView: React.FC<Props> = ({
         </button>
       </div>
 
+      {/* Loading Skeletons */}
+      {isLoading && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {[1, 2, 3, 4].map((n) => (
+            <div
+              key={n}
+              className="h-44 animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5"
+            />
+          ))}
+        </div>
+      )}
+
       {/* Keys Grid */}
-      {filteredKeys.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.1] bg-[#141720]/40 p-12 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/[0.08] bg-[#161B26] text-[#6C768A]">
-            <Lock className="h-6 w-6" />
+      {!isLoading && filteredKeys.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02] p-12 text-center backdrop-blur-sm">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/[0.08] bg-[#14161A] text-[#6C768A]">
+            <Lock className="h-6 w-6 text-[#5B6CFF]" />
           </div>
-          <h3 className="mt-4 text-sm font-semibold text-white">No API Keys Match Your Filter</h3>
+          <h3 className="mt-4 text-sm font-semibold text-white">No API Keys Found in Vault</h3>
           <p className="mt-1 max-w-sm text-xs text-[#8A94A6]">
-            Try adjusting your search terms or Gmail identity filter, or add a new key to the vault.
+            {searchQuery || providerFilter !== 'all' || selectedGmail !== 'all'
+              ? 'No keys match your current filter criteria. Try clearing filters or searching for another term.'
+              : 'Securely store provider API keys with AES-256-GCM encryption to enable continuous flow auto-rotation.'}
           </p>
-          <button
-            onClick={() => {
-              setSearchQuery('');
-              setProviderFilter('all');
-              setSelectedGmail('all');
-            }}
-            className="mt-4 text-xs text-[#5B6CFF] hover:underline"
-          >
-            Clear all filters
-          </button>
+          <div className="mt-4 flex items-center space-x-3">
+            {(searchQuery || providerFilter !== 'all' || selectedGmail !== 'all') && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setProviderFilter('all');
+                  setSelectedGmail('all');
+                }}
+                className="text-xs text-[#5B6CFF] hover:underline"
+              >
+                Clear all filters
+              </button>
+            )}
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="rounded-xl bg-[#5B6CFF] px-4 py-2 text-xs font-medium text-white hover:bg-[#4E5EEB]"
+            >
+              Add Your First Key
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -234,19 +274,19 @@ export const KeyVaultView: React.FC<Props> = ({
             return (
               <div
                 key={key.id}
-                className={`relative rounded-2xl border p-5 transition ${
-                  !key.enabled
-                    ? 'border-white/[0.04] bg-[#10131A]/60 opacity-60'
-                    : key.status === 'cooldown'
-                    ? 'border-amber-500/30 bg-[#151720]'
-                    : 'border-white/[0.08] bg-[#141720]/80 hover:border-white/[0.14]'
+                className={`relative rounded-2xl border p-5 transition backdrop-blur-md shadow-md ${
+                    !key.enabled
+                    ? 'border-white/[0.04] bg-white/[0.01] opacity-60'
+                    : key.status === 'rate-limited' || key.status === 'cooldown'
+                    ? 'border-amber-500/30 bg-amber-500/[0.03]'
+                    : 'border-white/[0.08] bg-white/[0.03] hover:border-white/[0.14]'
                 }`}
               >
                 {/* Header: Provider & Actions */}
                 <div className="flex items-start justify-between">
                   <div className="flex items-center space-x-3">
                     <div
-                      className="flex h-10 w-10 items-center justify-center rounded-xl"
+                      className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.06]"
                       style={{ backgroundColor: `${providerMeta.color}20`, color: providerMeta.color }}
                     >
                       <ProviderIcon provider={key.provider} size={20} />
@@ -268,17 +308,22 @@ export const KeyVaultView: React.FC<Props> = ({
 
                   {/* Priority and Status Badges */}
                   <div className="flex items-center space-x-2">
-                    <span
-                      className={`rounded-md px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
-                        key.priority === 1
-                          ? 'bg-[#5B6CFF]/20 text-[#8C9BFF]'
-                          : key.priority === 2
-                          ? 'bg-amber-500/20 text-amber-300'
-                          : 'bg-white/[0.08] text-[#8A94A6]'
-                      }`}
+                    <div
+                      className="group relative cursor-help"
+                      title="Rotation Priority: Lower number = tried first during request rotation and continuous flow failover"
                     >
-                      P{key.priority}
-                    </span>
+                      <span
+                        className={`inline-flex items-center space-x-1 rounded-md px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
+                          key.priority === 1
+                            ? 'bg-[#5B6CFF]/20 text-[#8C9BFF]'
+                            : key.priority === 2
+                            ? 'bg-amber-500/20 text-amber-300'
+                            : 'bg-white/[0.08] text-[#8A94A6]'
+                        }`}
+                      >
+                        <span>P{key.priority}</span>
+                      </span>
+                    </div>
 
                     <span
                       className={`inline-flex items-center space-x-1 rounded-md px-2 py-0.5 text-[10px] font-medium ${
@@ -286,7 +331,7 @@ export const KeyVaultView: React.FC<Props> = ({
                           ? 'bg-white/[0.05] text-[#6C768A]'
                           : key.status === 'active'
                           ? 'bg-emerald-500/10 text-emerald-400'
-                          : key.status === 'cooldown'
+                          : key.status === 'rate-limited' || key.status === 'cooldown'
                           ? 'bg-amber-500/10 text-amber-400'
                           : 'bg-rose-500/10 text-rose-400'
                       }`}
@@ -297,37 +342,40 @@ export const KeyVaultView: React.FC<Props> = ({
                             ? 'bg-[#6C768A]'
                             : key.status === 'active'
                             ? 'bg-emerald-400'
-                            : key.status === 'cooldown'
+                            : key.status === 'rate-limited' || key.status === 'cooldown'
                             ? 'bg-amber-400 animate-pulse'
                             : 'bg-rose-400'
                         }`}
                       />
-                      <span className="capitalize">{!key.enabled ? 'Disabled' : key.status}</span>
+                      <span className="capitalize">{!key.enabled ? 'Disabled' : key.status.replace('-', ' ')}</span>
                     </span>
                   </div>
                 </div>
 
-                {/* Key Masked Row */}
-                <div className="mt-4 flex items-center justify-between rounded-xl border border-white/[0.04] bg-[#0E1116] px-3 py-2 text-xs">
+                {/* Key Masked Row with Authenticated AES Badge */}
+                <div className="mt-4 flex items-center justify-between rounded-xl border border-white/[0.04] bg-[#0B0D10]/80 px-3 py-2 text-xs">
                   <div className="flex items-center space-x-2">
                     <Lock className="h-3.5 w-3.5 text-[#5B6CFF]" />
                     <span className="font-mono text-[#C5CEE0]">
-                      {isRevealed ? key.maskedKey.replace('••••••••', '•LIVE•SECURE•') : key.maskedKey}
+                      {isRevealed ? key.maskedKey.replace('••••••••', '•AES-GCM-LIVE•') : key.maskedKey}
+                    </span>
+                    <span className="rounded bg-emerald-500/10 px-1 py-0.2 text-[9px] font-medium text-emerald-400">
+                      AES-256-GCM
                     </span>
                   </div>
                   <div className="flex items-center space-x-1 text-[#8A94A6]">
                     <button
                       onClick={() =>
-                        setRevealedKeyIds((prev) => ({ ...prev, [key.id]: !prev[key.id] }))
+                        setRevealedKeyIds({ ...revealedKeyIds, [key.id]: !isRevealed })
                       }
-                      title={isRevealed ? 'Hide' : 'Reveal masked key'}
+                      title={isRevealed ? 'Hide Preview' : 'Reveal Mask Preview'}
                       className="rounded p-1 hover:bg-white/[0.06] hover:text-white"
                     >
                       {isRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                     </button>
                     <button
                       onClick={() => navigator.clipboard.writeText(key.maskedKey)}
-                      title="Copy masked identifier"
+                      title="Copy Masked Key"
                       className="rounded p-1 hover:bg-white/[0.06] hover:text-white"
                     >
                       <Copy className="h-3.5 w-3.5" />
@@ -335,77 +383,75 @@ export const KeyVaultView: React.FC<Props> = ({
                   </div>
                 </div>
 
-                {/* Usage Stats Row */}
-                <div className="mt-4 grid grid-cols-3 gap-2 border-t border-white/[0.04] pt-3 text-center text-xs">
-                  <div>
-                    <span className="text-[10px] uppercase text-[#6C768A]">Requests</span>
-                    <p className="mt-0.5 font-semibold text-white">{key.totalRequests.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <span className="text-[10px] uppercase text-[#6C768A]">Tokens</span>
-                    <p className="mt-0.5 font-semibold text-white">
-                      {key.tokensUsed > 1000 ? `${(key.tokensUsed / 1000).toFixed(1)}k` : key.tokensUsed}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-[10px] uppercase text-[#6C768A]">Latency</span>
-                    <p className="mt-0.5 font-semibold text-[#8C9BFF]">
-                      {key.lastLatencyMs ? `${key.lastLatencyMs}ms` : 'Ready'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Actions Footer */}
-                <div className="mt-4 flex items-center justify-between border-t border-white/[0.04] pt-3 text-xs">
-                  <div className="flex items-center space-x-2">
-                    {/* Live Test Button */}
-                    <button
-                      id={`test-key-${key.id}`}
-                      onClick={() => handleTestSingleKey(key.id)}
-                      disabled={isTesting || !key.enabled}
-                      className="flex items-center space-x-1.5 rounded-lg border border-white/[0.08] bg-[#161B26] px-2.5 py-1 text-xs text-[#C5CEE0] transition hover:border-[#5B6CFF]/40 hover:text-white disabled:opacity-40"
-                    >
-                      <RefreshCw className={`h-3 w-3 ${isTesting ? 'animate-spin text-[#5B6CFF]' : ''}`} />
-                      <span>{isTesting ? 'Testing...' : 'Test Key'}</span>
-                    </button>
-
-                    {successMsg && (
-                      <span className="text-[11px] font-medium text-emerald-400">{successMsg}</span>
+                {/* Metrics Footer */}
+                <div className="mt-4 flex items-center justify-between border-t border-white/[0.04] pt-3 text-xs text-[#8A94A6]">
+                  <div className="flex items-center space-x-4">
+                    <div>
+                      <span className="text-[#6C768A]">Requests: </span>
+                      <span className="font-medium text-white">{key.totalRequests}</span>
+                    </div>
+                    <div>
+                      <span className="text-[#6C768A]">Tokens: </span>
+                      <span className="font-medium text-white">{key.tokensUsed.toLocaleString()}</span>
+                    </div>
+                    {key.lastLatencyMs !== undefined && key.lastLatencyMs > 0 && (
+                      <div>
+                        <span className="text-[#6C768A]">Latency: </span>
+                        <span className="font-medium text-[#8C9BFF]">{key.lastLatencyMs}ms</span>
+                      </div>
                     )}
                   </div>
 
+                  {/* Actions */}
                   <div className="flex items-center space-x-1">
-                    {/* Toggle Active / Inactive */}
+                    {successMsg && (
+                      <span className="mr-2 text-[10px] font-medium text-emerald-400 animate-fade-in">
+                        {successMsg}
+                      </span>
+                    )}
+
+                    {/* Test Key Connection */}
                     <button
-                      id={`toggle-key-${key.id}`}
-                      onClick={() => onToggleKey(key.id, !key.enabled)}
-                      title={key.enabled ? 'Disable Key' : 'Enable Key'}
-                      className={`rounded-lg p-1.5 transition ${
-                        key.enabled
-                          ? 'text-emerald-400 hover:bg-emerald-500/10'
-                          : 'text-[#6C768A] hover:bg-white/[0.06]'
-                      }`}
+                      onClick={() => handleTestSingleKey(key.id)}
+                      disabled={isTesting}
+                      title="Test latency & provider connection"
+                      className="flex items-center space-x-1 rounded-lg border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[11px] font-medium text-[#C5CEE0] hover:border-white/[0.14] hover:text-white"
                     >
-                      <Power className="h-4 w-4" />
+                      <Zap className={`h-3 w-3 ${isTesting ? 'animate-spin text-amber-400' : 'text-[#5B6CFF]'}`} />
+                      <span>{isTesting ? 'Testing...' : 'Ping'}</span>
                     </button>
 
                     {/* Edit Key */}
                     <button
                       onClick={() => setEditingKey(key)}
-                      title="Edit key priority and label"
-                      className="rounded-lg p-1.5 text-[#8A94A6] hover:bg-white/[0.06] hover:text-white"
+                      title="Edit key configuration"
+                      className="rounded-lg p-1 text-[#8A94A6] hover:bg-white/[0.06] hover:text-white"
                     >
-                      <Edit2 className="h-4 w-4" />
+                      <Edit2 className="h-3.5 w-3.5" />
+                    </button>
+
+                    {/* Toggle Enable */}
+                    <button
+                      onClick={() => onToggleKey(key.id, !key.enabled)}
+                      title={key.enabled ? 'Disable Key' : 'Enable Key'}
+                      className={`rounded-lg p-1 ${
+                        key.enabled ? 'text-emerald-400 hover:text-emerald-300' : 'text-[#6C768A] hover:text-white'
+                      }`}
+                    >
+                      <Power className="h-3.5 w-3.5" />
                     </button>
 
                     {/* Delete Key */}
                     <button
-                      id={`delete-key-${key.id}`}
-                      onClick={() => onDeleteKey(key.id)}
-                      title="Delete key"
-                      className="rounded-lg p-1.5 text-[#8A94A6] hover:bg-rose-500/10 hover:text-rose-400"
+                      onClick={() => {
+                        if (confirm(`Remove "${key.label}" from key vault?`)) {
+                          onDeleteKey(key.id);
+                        }
+                      }}
+                      title="Delete Key"
+                      className="rounded-lg p-1 text-[#8A94A6] hover:bg-rose-500/20 hover:text-rose-400"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
@@ -415,33 +461,30 @@ export const KeyVaultView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* ADD API KEY MODAL */}
+      {/* ADD KEY MODAL */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-white/[0.1] bg-[#161B26] p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
+          <div className="w-full max-w-lg rounded-2xl border border-white/[0.1] bg-[#14161A] p-6 shadow-2xl backdrop-blur-xl">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <div className="flex items-center space-x-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#5B6CFF]/10 text-[#5B6CFF]">
-                  <Plus className="h-4 w-4" />
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#5B6CFF]/20 text-[#5B6CFF]">
+                  <Lock className="h-4 w-4" />
                 </div>
-                <div>
-                  <h3 className="font-semibold text-white">Add Provider API Key</h3>
-                  <p className="text-xs text-[#8A94A6]">Encrypted with AES-256 at rest</p>
-                </div>
+                <h3 className="font-semibold text-white">Add New API Key to Vault</h3>
               </div>
               <button
                 onClick={() => setIsAddModalOpen(false)}
                 className="text-xs text-[#8A94A6] hover:text-white"
               >
-                Cancel
+                ✕
               </button>
             </div>
 
             <form onSubmit={handleCreateKey} className="mt-4 space-y-4">
-              {/* Provider Selection */}
+              {/* Provider Selector Grid */}
               <div>
-                <label className="block text-xs font-medium text-[#C5CEE0]">AI Provider</label>
-                <div className="mt-1 grid grid-cols-3 gap-2 max-h-40 overflow-y-auto pr-1">
+                <label className="block text-xs font-medium text-[#C5CEE0]">Select AI Provider</label>
+                <div className="mt-1.5 grid max-h-36 grid-cols-3 gap-2 overflow-y-auto pr-1">
                   {PROVIDERS.map((p) => (
                     <button
                       key={p.id}
@@ -449,8 +492,8 @@ export const KeyVaultView: React.FC<Props> = ({
                       onClick={() => setNewProvider(p.id)}
                       className={`flex items-center space-x-2 rounded-xl border p-2 text-left text-xs transition ${
                         newProvider === p.id
-                          ? 'border-[#5B6CFF] bg-[#5B6CFF]/15 text-white'
-                          : 'border-white/[0.06] bg-[#0E1116] text-[#8A94A6] hover:text-white'
+                          ? 'border-[#5B6CFF] bg-[#5B6CFF]/15 text-white shadow-sm'
+                          : 'border-white/[0.06] bg-[#0B0D10]/70 text-[#8A94A6] hover:text-white'
                       }`}
                     >
                       <ProviderIcon provider={p.id} size={14} />
@@ -470,10 +513,10 @@ export const KeyVaultView: React.FC<Props> = ({
                   value={newRawKey}
                   onChange={(e) => handleKeyInputChange(e.target.value)}
                   required
-                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0E1116] px-3 py-2 text-xs font-mono text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
+                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs font-mono text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
                 />
                 <span className="mt-1 block text-[11px] text-[#717B8F]">
-                  Auto-detects provider pattern based on prefix. Never exposed to clients.
+                  Encrypted at rest with AES-256-GCM. Never logged or exposed to client apps.
                 </span>
               </div>
 
@@ -485,37 +528,67 @@ export const KeyVaultView: React.FC<Props> = ({
                   placeholder={`e.g. Personal ${newProvider.toUpperCase()} #1`}
                   value={newLabel}
                   onChange={(e) => setNewLabel(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0E1116] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
+                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
                 />
               </div>
 
-              {/* Gmail Identity Tag */}
+              {/* Gmail Identity Tag Selection */}
               <div>
-                <label className="block text-xs font-medium text-[#C5CEE0]">Gmail Account Tag</label>
-                <div className="mt-1 flex items-center space-x-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-medium text-[#C5CEE0]">
+                    Assign to Connected Gmail Account
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickAddGmail(!showQuickAddGmail)}
+                    className="text-[11px] text-[#5B6CFF] hover:underline"
+                  >
+                    {showQuickAddGmail ? 'Select Existing' : '+ Connect New Gmail Tag'}
+                  </button>
+                </div>
+
+                {showQuickAddGmail ? (
+                  <div className="mt-1.5">
+                    <input
+                      type="email"
+                      placeholder="your.account@gmail.com"
+                      value={quickGmailInput}
+                      onChange={(e) => setQuickGmailInput(e.target.value)}
+                      className="w-full rounded-xl border border-[#5B6CFF]/50 bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:outline-none"
+                    />
+                  </div>
+                ) : (
                   <select
                     value={newGmailTag}
                     onChange={(e) => setNewGmailTag(e.target.value)}
-                    className="w-full rounded-xl border border-white/[0.08] bg-[#0E1116] px-3 py-2 text-xs text-white focus:border-[#5B6CFF] focus:outline-none"
+                    className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white focus:border-[#5B6CFF] focus:outline-none"
                   >
                     {gmailAccounts.map((acc) => (
                       <option key={acc.id} value={acc.email}>
-                        {acc.email} ({acc.name})
+                        {acc.email} ({acc.name || 'Account'})
                       </option>
                     ))}
                   </select>
-                </div>
+                )}
               </div>
 
-              {/* Priority Selection */}
+              {/* Priority Selection with Tooltips */}
               <div>
-                <label className="block text-xs font-medium text-[#C5CEE0]">
-                  Rotation Priority / Weight
-                </label>
-                <div className="mt-1 grid grid-cols-3 gap-2">
+                <div className="flex items-center space-x-1">
+                  <label className="block text-xs font-medium text-[#C5CEE0]">
+                    Rotation Priority / Weight
+                  </label>
+                  <span
+                    className="cursor-help text-[#6C768A] hover:text-white"
+                    title="Priority: Lower numbers are queried first. Higher numbers act as fallback backups."
+                  >
+                    <HelpCircle className="h-3.5 w-3.5" />
+                  </span>
+                </div>
+                <div className="mt-1.5 grid grid-cols-3 gap-2">
                   {[
-                    { val: 1, title: 'P1 - Primary', desc: 'Used first in rotation' },
-                    { val: 2, title: 'P2 - Secondary', desc: 'Used if P1 busy' },
+                    { val: 1, title: 'P1 - Primary', desc: 'Lower number = tried first in rotation' },
+                    { val: 2, title: 'P2 - Secondary', desc: 'Rotated if P1 is busy' },
                     { val: 3, title: 'P3 - Fallback', desc: 'Emergency backup' },
                   ].map((p) => (
                     <button
@@ -525,29 +598,43 @@ export const KeyVaultView: React.FC<Props> = ({
                       className={`rounded-xl border p-2 text-left text-xs transition ${
                         newPriority === p.val
                           ? 'border-[#5B6CFF] bg-[#5B6CFF]/15 text-white'
-                          : 'border-white/[0.06] bg-[#0E1116] text-[#8A94A6] hover:text-white'
+                          : 'border-white/[0.06] bg-[#0B0D10] text-[#8A94A6] hover:text-white'
                       }`}
                     >
                       <div className="font-semibold">{p.title}</div>
-                      <div className="text-[10px] text-[#6C768A]">{p.desc}</div>
+                      <div className="text-[10px] text-[#6C768A] leading-tight mt-0.5">{p.desc}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* If Custom Provider: Base URL */}
+              {/* If Custom Provider: Base URL & Auth Header */}
               {newProvider === 'custom' && (
-                <div>
-                  <label className="block text-xs font-medium text-[#C5CEE0]">
-                    Custom OpenAI-Compatible Base URL
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="https://your-custom-llm-host.com/v1"
-                    value={newCustomBaseUrl}
-                    onChange={(e) => setNewCustomBaseUrl(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0E1116] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
-                  />
+                <div className="space-y-3 rounded-xl border border-white/[0.06] bg-[#0B0D10]/50 p-3">
+                  <div>
+                    <label className="block text-xs font-medium text-[#C5CEE0]">
+                      Custom OpenAI-Compatible Endpoint URL
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="https://your-custom-llm-host.com/v1/chat/completions"
+                      value={newCustomBaseUrl}
+                      onChange={(e) => setNewCustomBaseUrl(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-[#C5CEE0]">
+                      Custom Authorization Header (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Bearer ${KEY} or api-key: ${KEY}"
+                      value={newCustomAuthHeader}
+                      onChange={(e) => setNewCustomAuthHeader(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
+                    />
+                  </div>
                 </div>
               )}
 
@@ -566,7 +653,7 @@ export const KeyVaultView: React.FC<Props> = ({
                   disabled={isSubmitting || !newRawKey.trim()}
                   className="rounded-xl bg-[#5B6CFF] px-4 py-2 text-xs font-medium text-white shadow-sm transition hover:bg-[#4E5EEB] disabled:opacity-50"
                 >
-                  {isSubmitting ? 'Encrypting & Saving...' : 'Vault & Encrypt Key'}
+                  {isSubmitting ? 'Encrypting with AES-256-GCM...' : 'Vault & Encrypt Key'}
                 </button>
               </div>
             </form>
@@ -574,12 +661,12 @@ export const KeyVaultView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* EDIT MODAL */}
+      {/* EDIT KEY MODAL */}
       {editingKey && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#161B26] p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
+          <div className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#14161A] p-6 shadow-2xl">
             <h3 className="font-semibold text-white">Edit Key Configuration</h3>
-            <p className="text-xs text-[#8A94A6]">Update label, Gmail tag, or priority level</p>
+            <p className="text-xs text-[#8A94A6]">Update label, Gmail tag, or rotation priority</p>
 
             <div className="mt-4 space-y-4">
               <div>
@@ -588,20 +675,20 @@ export const KeyVaultView: React.FC<Props> = ({
                   type="text"
                   value={editingKey.label}
                   onChange={(e) => setEditingKey({ ...editingKey, label: e.target.value })}
-                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0E1116] px-3 py-2 text-xs text-white focus:border-[#5B6CFF] focus:outline-none"
+                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white focus:border-[#5B6CFF] focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#C5CEE0]">Priority</label>
+                <label className="block text-xs font-medium text-[#C5CEE0]">Rotation Priority</label>
                 <select
                   value={editingKey.priority}
                   onChange={(e) => setEditingKey({ ...editingKey, priority: Number(e.target.value) })}
-                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0E1116] px-3 py-2 text-xs text-white focus:border-[#5B6CFF] focus:outline-none"
+                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white focus:border-[#5B6CFF] focus:outline-none"
                 >
-                  <option value={1}>P1 - Primary</option>
-                  <option value={2}>P2 - Secondary</option>
-                  <option value={3}>P3 - Fallback</option>
+                  <option value={1}>P1 - Primary (Tried First)</option>
+                  <option value={2}>P2 - Secondary (Rotated if P1 busy)</option>
+                  <option value={3}>P3 - Fallback (Emergency Backup)</option>
                 </select>
               </div>
 
@@ -610,7 +697,7 @@ export const KeyVaultView: React.FC<Props> = ({
                 <select
                   value={editingKey.gmailTag}
                   onChange={(e) => setEditingKey({ ...editingKey, gmailTag: e.target.value })}
-                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0E1116] px-3 py-2 text-xs text-white focus:border-[#5B6CFF] focus:outline-none"
+                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white focus:border-[#5B6CFF] focus:outline-none"
                 >
                   {gmailAccounts.map((acc) => (
                     <option key={acc.id} value={acc.email}>

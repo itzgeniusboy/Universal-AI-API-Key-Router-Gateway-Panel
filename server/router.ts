@@ -1,20 +1,13 @@
-import { GoogleGenAI } from '@google/genai';
-import { detectProviderFromModel, PROVIDERS } from '../src/data/providers';
-import { ProviderId, UsageLog } from '../src/types';
+import type { ProviderId } from '../src/types';
+import {
+  AuthError,
+  executeProviderCall,
+  ProviderError,
+  RateLimitError,
+} from './providers/index.ts';
+import { DEFAULT_PROVIDER_MODELS, detectProviderFromModel } from './providers/constants';
+import type { ProviderCallResult } from './providers/index.ts';
 import { decryptKey, routerStore } from './store';
-
-// Lazy initialized Gemini client if key is configured
-let googleAiClient: GoogleGenAI | null = null;
-function getGoogleClient(apiKey?: string): GoogleGenAI | null {
-  const key = apiKey || process.env.GEMINI_API_KEY;
-  if (!key) return null;
-  try {
-    return new GoogleGenAI({ apiKey: key });
-  } catch (err) {
-    console.error('Error initializing GoogleGenAI client:', err);
-    return null;
-  }
-}
 
 export interface DispatchParams {
   provider?: ProviderId | 'auto';
@@ -26,6 +19,7 @@ export interface DispatchParams {
   authHeader?: string;
   simulateRateLimitOnFirst?: boolean;
   endpoint?: string;
+  userId?: string;
 }
 
 export interface DispatchResult {
@@ -43,39 +37,44 @@ export interface DispatchResult {
   latencyMs: number;
   fallbackAttempted: boolean;
   fallbackChain: string[];
+  streamResponse?: any;
   error?: string;
 }
 
 export async function dispatchAiRequest(params: DispatchParams): Promise<DispatchResult> {
   const startTime = Date.now();
   const endpoint = params.endpoint || '/api/v1/route';
+  const userId = params.userId || 'default-user';
 
   // 1. Resolve Provider and Model
-  let targetProvider: ProviderId = params.provider === 'auto' || !params.provider
-    ? (params.model ? detectProviderFromModel(params.model) : 'openai')
-    : params.provider;
+  const targetProvider: ProviderId =
+    params.provider === 'auto' || !params.provider
+      ? params.model
+        ? detectProviderFromModel(params.model)
+        : 'openai'
+      : params.provider;
 
-  const providerMeta = PROVIDERS.find((p) => p.id === targetProvider) || PROVIDERS[0];
-  const targetModel = params.model || providerMeta.defaultModel;
+  const targetModel = params.model || DEFAULT_PROVIDER_MODELS[targetProvider] || 'gpt-4o';
 
   const fallbackChain: string[] = [];
   const excludedKeyIds: string[] = [];
-  const maxRetries = routerStore.getSettings().maxFallbackRetries;
+  const settings = routerStore.getSettings(userId);
+  const maxRetries = settings.maxFallbackRetries;
 
   let attempt = 0;
   let lastError = '';
   let fallbackAttempted = false;
 
-  const promptText = params.messages && params.messages.length > 0
-    ? params.messages[params.messages.length - 1].content
-    : 'Hello from AI Gateway';
+  const promptText =
+    params.messages && params.messages.length > 0
+      ? params.messages[params.messages.length - 1].content
+      : 'Hello from AI Gateway';
 
   while (attempt <= maxRetries) {
-    const selectedKey = routerStore.selectNextKey(targetProvider, excludedKeyIds);
+    const selectedKey = routerStore.selectNextKey(targetProvider, excludedKeyIds, userId);
 
     if (!selectedKey) {
       if (attempt === 0) {
-        // No keys configured for this provider!
         const errMsg = `No active API keys found for provider "${targetProvider}". Please add one in the API Key Vault.`;
         return {
           success: false,
@@ -93,116 +92,137 @@ export async function dispatchAiRequest(params: DispatchParams): Promise<Dispatc
       break;
     }
 
-    // Check if we need to simulate rate-limit on first key for testing
-    const shouldSimulateFailure = params.simulateRateLimitOnFirst && attempt === 0;
+    // Explicit testbench simulation switch
+    const shouldSimulateFailure = Boolean(params.simulateRateLimitOnFirst) && attempt === 0;
 
     if (shouldSimulateFailure) {
       fallbackAttempted = true;
-      fallbackChain.push(`${selectedKey.label} [${selectedKey.maskedKey}] (429 Rate Limit - Simulating Key Exhaustion)`);
+      fallbackChain.push(`${selectedKey.label} [${selectedKey.maskedKey}] (429 Rate Limit - Simulated Key Exhaustion)`);
       routerStore.markKeyRateLimited(selectedKey.id);
       excludedKeyIds.push(selectedKey.id);
       attempt++;
       continue;
     }
 
-    // Try executing with this key
+    // Try executing real HTTP call to provider
     try {
       const rawDecryptedKey = decryptKey(selectedKey.encryptedKey);
 
-      let responseContent = '';
-      let tokensUsed = 0;
+      // Call the provider adapter
+      let callResult: ProviderCallResult;
 
-      // Real execution for Google AI Studio if applicable
-      if (targetProvider === 'google' && (rawDecryptedKey || process.env.GEMINI_API_KEY)) {
-        try {
-          const client = getGoogleClient(rawDecryptedKey);
-          if (client) {
-            const res = await client.models.generateContent({
-              model: targetModel.includes('gemini') ? targetModel : 'gemini-2.5-flash',
-              contents: promptText,
-            });
-            responseContent = res.text || 'Response received successfully from Google AI Studio.';
-            tokensUsed = Math.round((promptText.length + responseContent.length) / 3.8);
-          }
-        } catch (apiErr: any) {
-          if (apiErr.status === 429 || String(apiErr.message).includes('429')) {
-            throw new Error('429 Rate Limit Exceeded');
-          }
-          throw apiErr;
-        }
-      }
+      // If the key is an unconfigured placeholder sample, provide clear diagnostic fallback
+      const isPlaceholderSample =
+        rawDecryptedKey.includes('sample') ||
+        rawDecryptedKey.includes('DemoSample') ||
+        rawDecryptedKey.length < 10;
 
-      // If not handled by live client or another provider, generate realistic response
-      if (!responseContent) {
-        // High fidelity gateway response
-        responseContent = generateSimulatedProviderResponse(targetProvider, targetModel, promptText, attempt > 0);
-        tokensUsed = Math.floor(Math.random() * 200) + 120 + Math.round(promptText.length / 4);
+      if (isPlaceholderSample) {
+        // High fidelity simulated response for demo placeholder keys
+        await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 200) + 120));
+        const simulatedContent = generateDemoResponse(targetProvider, targetModel, promptText, fallbackAttempted);
+        callResult = {
+          content: simulatedContent,
+          tokensUsed: Math.floor(Math.random() * 150) + 90 + Math.round(promptText.length / 4),
+          model: targetModel,
+          latencyMs: Date.now() - startTime,
+        };
+      } else {
+        // Real HTTP call to the provider API
+        callResult = await executeProviderCall(targetProvider, {
+          apiKey: rawDecryptedKey,
+          model: targetModel,
+          messages: params.messages,
+          temperature: params.temperature,
+          max_tokens: params.max_tokens,
+          stream: params.stream,
+          customBaseUrl: selectedKey.customBaseUrl,
+          customAuthHeader: selectedKey.customAuthHeader,
+        });
       }
 
       const latencyMs = Date.now() - startTime;
-      routerStore.recordKeyUsage(selectedKey.id, tokensUsed, latencyMs);
+      routerStore.recordKeyUsage(selectedKey.id, callResult.tokensUsed, latencyMs);
 
       if (fallbackAttempted) {
         fallbackChain.push(`${selectedKey.label} [${selectedKey.maskedKey}] (Success - Continuous Flow Preserved)`);
       }
 
       // Record Usage Log
-      routerStore.addLog({
-        provider: targetProvider,
-        keyId: selectedKey.id,
-        keyLabel: selectedKey.label,
-        gmailTag: selectedKey.gmailTag,
-        model: targetModel,
-        tokensUsed,
-        status: fallbackAttempted ? 'fallback_recovered' : 'success',
-        latencyMs,
-        fallbackAttempted,
-        fallbackChain: fallbackChain.length > 0 ? fallbackChain : undefined,
-        endpoint,
-        promptPreview: promptText.slice(0, 120) + (promptText.length > 120 ? '...' : ''),
-      });
+      routerStore.addLog(
+        {
+          provider: targetProvider,
+          keyId: selectedKey.id,
+          keyLabel: selectedKey.label,
+          gmailTag: selectedKey.gmailTag,
+          model: targetModel,
+          tokensUsed: callResult.tokensUsed,
+          status: fallbackAttempted ? 'fallback_recovered' : 'success',
+          latencyMs,
+          fallbackAttempted,
+          fallbackChain: fallbackChain.length > 0 ? fallbackChain : undefined,
+          endpoint,
+          promptPreview: promptText.slice(0, 120) + (promptText.length > 120 ? '...' : ''),
+        },
+        userId
+      );
 
       return {
         success: true,
-        content: responseContent,
+        content: callResult.content,
         provider: targetProvider,
-        model: targetModel,
+        model: callResult.model || targetModel,
         keyUsed: {
           id: selectedKey.id,
           label: selectedKey.label,
           maskedKey: selectedKey.maskedKey,
           gmailTag: selectedKey.gmailTag,
         },
-        tokensUsed,
+        tokensUsed: callResult.tokensUsed,
         latencyMs,
         fallbackAttempted,
         fallbackChain,
+        streamResponse: callResult.streamResponse,
       };
     } catch (err: any) {
-      lastError = err.message || 'Provider request failed';
       fallbackAttempted = true;
-      fallbackChain.push(`${selectedKey.label} [${selectedKey.maskedKey}] (Failed: ${lastError.slice(0, 40)})`);
-      routerStore.markKeyRateLimited(selectedKey.id);
+      lastError = err.message || 'Provider request failed';
+
+      if (err instanceof RateLimitError || err.statusCode === 429) {
+        fallbackChain.push(`${selectedKey.label} [${selectedKey.maskedKey}] (429 Rate Limit - Cooldown Applied)`);
+        routerStore.markKeyRateLimited(selectedKey.id, err.retryAfterSeconds);
+      } else if (err instanceof AuthError || err.statusCode === 401 || err.statusCode === 403) {
+        fallbackChain.push(`${selectedKey.label} [${selectedKey.maskedKey}] (Auth Error ${err.statusCode} - Key Disabled)`);
+        routerStore.updateKey(selectedKey.id, { status: 'error' });
+      } else {
+        fallbackChain.push(`${selectedKey.label} [${selectedKey.maskedKey}] (Error: ${lastError.slice(0, 50)})`);
+        routerStore.markKeyRateLimited(selectedKey.id, 30);
+      }
+
       excludedKeyIds.push(selectedKey.id);
       attempt++;
     }
   }
 
+  // All retries failed
   const finalLatency = Date.now() - startTime;
-  routerStore.addLog({
-    provider: targetProvider,
-    keyId: 'error-exhausted',
-    keyLabel: 'All Keys Failed',
-    gmailTag: 'system',
-    model: targetModel,
-    tokensUsed: 0,
-    status: 'error',
-    latencyMs: finalLatency,
-    fallbackAttempted: true,
-    fallbackChain,
-    endpoint,
-    promptPreview: promptText.slice(0, 80),
-  });
+  routerStore.addLog(
+    {
+      provider: targetProvider,
+      keyId: 'error-exhausted',
+      keyLabel: 'All Keys Failed',
+      gmailTag: 'system',
+      model: targetModel,
+      tokensUsed: 0,
+      status: 'error',
+      latencyMs: finalLatency,
+      fallbackAttempted: true,
+      fallbackChain,
+      endpoint,
+      promptPreview: promptText.slice(0, 80),
+    },
+    userId
+  );
 
   return {
     success: false,
@@ -218,22 +238,22 @@ export async function dispatchAiRequest(params: DispatchParams): Promise<Dispatc
   };
 }
 
-function generateSimulatedProviderResponse(
+function generateDemoResponse(
   provider: ProviderId,
   model: string,
   prompt: string,
   wasFallback: boolean
 ): string {
   const fallbackNotice = wasFallback
-    ? `[Router Notice: Automatically resolved via backup key rotation without connection interruption]\n\n`
+    ? `[Router Notice: Continuous Flow Preserved - Automatically routed via backup key]\n\n`
     : '';
 
-  const snippet = prompt.length > 60 ? prompt.slice(0, 57) + '...' : prompt;
+  const snippet = prompt.length > 70 ? prompt.slice(0, 67) + '...' : prompt;
 
-  return `${fallbackNotice}Hello! This response was routed through the Universal AI Router via ${provider.toUpperCase()} (${model}).
+  return `${fallbackNotice}Response dispatched via Universal AI Gateway through ${provider.toUpperCase()} (${model}).
 
-In response to your query "${snippet}":
-1. High-throughput multi-key routing is active.
-2. Latency and token consumption have been recorded to the usage audit logs.
-3. Key auto-rotation ensured healthy distribution across your configured Gmail accounts.`;
+In response to "${snippet}":
+1. Key auto-rotation is active with verified latency metrics.
+2. Rate limits and quota status are monitored in real time.
+3. AES-256-GCM encrypted key storage authenticated at rest.`;
 }

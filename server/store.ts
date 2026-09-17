@@ -1,36 +1,58 @@
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
-import { ApiKeyItem, GmailAccount, ProviderId, RouterSettings, RouterToken, UsageLog } from '../src/types';
+import type { ApiKeyItem, GmailAccount, ProviderId, RouterSettings, RouterToken, UsageLog } from '../src/types';
+import { getDatabase } from './db';
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'router-panel-secure-aes-key-32ch'; // 32 bytes
-const IV_LENGTH = 16;
+const IV_GCM_LENGTH = 12;
 
+/**
+ * AES-256-GCM Authenticated Encryption for API keys at rest.
+ * Output format: "gcm:<iv_hex>:<tag_hex>:<cipher_hex>"
+ */
 export function encryptKey(text: string): string {
   try {
-    const iv = crypto.randomBytes(IV_LENGTH);
+    const iv = crypto.randomBytes(IV_GCM_LENGTH);
     const key = crypto.createHash('sha256').update(String(ENCRYPTION_KEY)).digest();
-    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    return iv.toString('hex') + ':' + encrypted;
+    const authTag = cipher.getAuthTag();
+    return `gcm:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
   } catch (err) {
     return Buffer.from(text).toString('base64');
   }
 }
 
+/**
+ * Decrypts an AES-256-GCM encrypted API key.
+ * Also backwards-compatible with legacy AES-256-CBC ciphertexts ("iv:cipher").
+ */
 export function decryptKey(cipherText: string): string {
   try {
-    if (!cipherText.includes(':')) {
-      return Buffer.from(cipherText, 'base64').toString('utf8');
-    }
-    const [ivHex, encrypted] = cipherText.split(':');
-    const iv = Buffer.from(ivHex, 'hex');
     const key = crypto.createHash('sha256').update(String(ENCRYPTION_KEY)).digest();
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+
+    if (cipherText.startsWith('gcm:')) {
+      const parts = cipherText.split(':');
+      const iv = Buffer.from(parts[1], 'hex');
+      const authTag = Buffer.from(parts[2], 'hex');
+      const encrypted = parts[3];
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(authTag);
+      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      return decrypted;
+    }
+
+    if (cipherText.includes(':')) {
+      const [ivHex, encrypted] = cipherText.split(':');
+      const iv = Buffer.from(ivHex, 'hex');
+      const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      return decrypted;
+    }
+
+    return Buffer.from(cipherText, 'base64').toString('utf8');
   } catch (err) {
     return cipherText;
   }
@@ -44,352 +66,220 @@ export function maskApiKey(key: string): string {
   return `${prefix}••••••••${suffix}`;
 }
 
-export interface RouterState {
-  keys: ApiKeyItem[];
-  tokens: RouterToken[];
-  logs: UsageLog[];
-  gmailAccounts: GmailAccount[];
-  settings: RouterSettings;
-}
+const DEFAULT_SETTINGS: RouterSettings = {
+  rotationStrategy: 'round-robin',
+  autoFallback: true,
+  maxFallbackRetries: 3,
+  cooldownSeconds: 60,
+  rateLimitTolerance: 2,
+  logRetentionDays: 30,
+};
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const STORE_FILE = path.join(DATA_DIR, 'router-store.json');
-
-const INITIAL_GMAIL_ACCOUNTS: GmailAccount[] = [
-  {
-    id: 'gm-primary',
-    email: 'itzraviking@gmail.com',
-    name: 'Personal Admin',
-    isPrimary: true,
-    avatarColor: '#5B6CFF',
-    addedAt: new Date(Date.now() - 30 * 86400000).toISOString(),
-  },
-  {
-    id: 'gm-work',
-    email: 'team.enterprise@gmail.com',
-    name: 'Enterprise Workspace',
-    isPrimary: false,
-    avatarColor: '#10A37F',
-    addedAt: new Date(Date.now() - 14 * 86400000).toISOString(),
-  },
-];
-
-const INITIAL_KEYS: ApiKeyItem[] = [
-  {
-    id: 'k-oai-1',
-    provider: 'openai',
-    label: 'OpenAI Production Primary',
-    maskedKey: 'sk-proj••••••••4892',
-    encryptedKey: encryptKey('sk-proj-prod-sample-key-primary-4892'),
-    gmailTag: 'itzraviking@gmail.com',
-    status: 'active',
-    priority: 1,
-    totalRequests: 1420,
-    tokensUsed: 620400,
-    lastUsedAt: new Date(Date.now() - 120000).toISOString(),
-    createdAt: new Date(Date.now() - 20 * 86400000).toISOString(),
-    enabled: true,
-    lastLatencyMs: 420,
-  },
-  {
-    id: 'k-oai-2',
-    provider: 'openai',
-    label: 'OpenAI Backup Tier-2',
-    maskedKey: 'sk-proj••••••••9011',
-    encryptedKey: encryptKey('sk-proj-backup-sample-key-secondary-9011'),
-    gmailTag: 'team.enterprise@gmail.com',
-    status: 'active',
-    priority: 2,
-    totalRequests: 890,
-    tokensUsed: 312000,
-    lastUsedAt: new Date(Date.now() - 940000).toISOString(),
-    createdAt: new Date(Date.now() - 18 * 86400000).toISOString(),
-    enabled: true,
-    lastLatencyMs: 480,
-  },
-  {
-    id: 'k-ant-1',
-    provider: 'anthropic',
-    label: 'Claude Sonnet Fast Route',
-    maskedKey: 'sk-ant••••••••8201',
-    encryptedKey: encryptKey('sk-ant-sample-key-tier1-8201'),
-    gmailTag: 'itzraviking@gmail.com',
-    status: 'active',
-    priority: 1,
-    totalRequests: 1980,
-    tokensUsed: 940000,
-    lastUsedAt: new Date(Date.now() - 45000).toISOString(),
-    createdAt: new Date(Date.now() - 25 * 86400000).toISOString(),
-    enabled: true,
-    lastLatencyMs: 610,
-  },
-  {
-    id: 'k-ant-2',
-    provider: 'anthropic',
-    label: 'Claude Team Fallback',
-    maskedKey: 'sk-ant••••••••3319',
-    encryptedKey: encryptKey('sk-ant-sample-key-fallback-3319'),
-    gmailTag: 'team.enterprise@gmail.com',
-    status: 'active',
-    priority: 2,
-    totalRequests: 420,
-    tokensUsed: 190400,
-    lastUsedAt: new Date(Date.now() - 2800000).toISOString(),
-    createdAt: new Date(Date.now() - 15 * 86400000).toISOString(),
-    enabled: true,
-    lastLatencyMs: 640,
-  },
-  {
-    id: 'k-groq-1',
-    provider: 'groq',
-    label: 'Groq LPU Instant Ultra',
-    maskedKey: 'gsk_••••••••1109',
-    encryptedKey: encryptKey('gsk_sample_ultra_instant_1109'),
-    gmailTag: 'itzraviking@gmail.com',
-    status: 'active',
-    priority: 1,
-    totalRequests: 3200,
-    tokensUsed: 1450000,
-    lastUsedAt: new Date(Date.now() - 30000).toISOString(),
-    createdAt: new Date(Date.now() - 28 * 86400000).toISOString(),
-    enabled: true,
-    lastLatencyMs: 140,
-  },
-  {
-    id: 'k-dsk-1',
-    provider: 'deepseek',
-    label: 'DeepSeek Reasoner Pool',
-    maskedKey: 'sk-••••••••5512',
-    encryptedKey: encryptKey('sk-deepseek-sample-key-5512'),
-    gmailTag: 'itzraviking@gmail.com',
-    status: 'active',
-    priority: 1,
-    totalRequests: 840,
-    tokensUsed: 490000,
-    lastUsedAt: new Date(Date.now() - 420000).toISOString(),
-    createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
-    enabled: true,
-    lastLatencyMs: 780,
-  },
-  {
-    id: 'k-mst-1',
-    provider: 'mistral',
-    label: 'Mistral Large Hub',
-    maskedKey: 'mis_••••••••9422',
-    encryptedKey: encryptKey('mis_sample_key_prod_9422'),
-    gmailTag: 'team.enterprise@gmail.com',
-    status: 'active',
-    priority: 1,
-    totalRequests: 620,
-    tokensUsed: 280000,
-    lastUsedAt: new Date(Date.now() - 1500000).toISOString(),
-    createdAt: new Date(Date.now() - 12 * 86400000).toISOString(),
-    enabled: true,
-    lastLatencyMs: 380,
-  },
-  {
-    id: 'k-or-1',
-    provider: 'openrouter',
-    label: 'OpenRouter Multi-Pass',
-    maskedKey: 'sk-or••••••••7741',
-    encryptedKey: encryptKey('sk-or-v1-sample-pass-7741'),
-    gmailTag: 'itzraviking@gmail.com',
-    status: 'active',
-    priority: 1,
-    totalRequests: 540,
-    tokensUsed: 210000,
-    lastUsedAt: new Date(Date.now() - 860000).toISOString(),
-    createdAt: new Date(Date.now() - 8 * 86400000).toISOString(),
-    enabled: true,
-    lastLatencyMs: 510,
-  },
-];
-
-// If GEMINI_API_KEY is available in environment, automatically seed a live Google AI Studio key!
-if (process.env.GEMINI_API_KEY) {
-  INITIAL_KEYS.unshift({
-    id: 'k-google-live',
-    provider: 'google',
-    label: 'Google AI Studio Live Key',
-    maskedKey: maskApiKey(process.env.GEMINI_API_KEY),
-    encryptedKey: encryptKey(process.env.GEMINI_API_KEY),
-    gmailTag: 'itzraviking@gmail.com',
-    status: 'active',
-    priority: 1,
-    totalRequests: 95,
-    tokensUsed: 42000,
-    lastUsedAt: new Date().toISOString(),
-    createdAt: new Date().toISOString(),
-    enabled: true,
-    lastLatencyMs: 310,
-  });
-}
-
-const INITIAL_TOKENS: RouterToken[] = [
-  {
-    id: 'tok-live-master-1',
-    label: 'Production Gateway Master',
-    tokenPrefix: 'gw_live_8f49',
-    tokenHash: crypto.createHash('sha256').update('gw_live_8f49a2b9c7e1').digest('hex'),
-    createdAt: new Date(Date.now() - 15 * 86400000).toISOString(),
-    lastUsed: new Date(Date.now() - 30000).toISOString(),
-    totalCalls: 7890,
-    allowedProviders: ['all'],
-    rawTokenPreview: 'gw_live_8f49a2b9c7e1_master_router',
-  },
-  {
-    id: 'tok-n8n-agent',
-    label: 'n8n Workflow Automation',
-    tokenPrefix: 'gw_n8n_33d1',
-    tokenHash: crypto.createHash('sha256').update('gw_n8n_33d1e998a44b').digest('hex'),
-    createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
-    lastUsed: new Date(Date.now() - 1200000).toISOString(),
-    totalCalls: 1420,
-    allowedProviders: ['openai', 'anthropic', 'groq'],
-    rawTokenPreview: 'gw_n8n_33d1e998a44b_agent_key',
-  },
-];
-
-const INITIAL_LOGS: UsageLog[] = [
-  {
-    id: 'log-001',
-    timestamp: new Date(Date.now() - 15000).toISOString(),
-    provider: 'groq',
-    keyId: 'k-groq-1',
-    keyLabel: 'Groq LPU Instant Ultra',
-    gmailTag: 'itzraviking@gmail.com',
-    model: 'llama-3.3-70b-versatile',
-    tokensUsed: 412,
-    status: 'success',
-    latencyMs: 142,
-    fallbackAttempted: false,
-    endpoint: '/api/v1/chat/completions',
-    promptPreview: 'Analyze the market trends for developer tooling in 2026...',
-  },
-  {
-    id: 'log-002',
-    timestamp: new Date(Date.now() - 45000).toISOString(),
-    provider: 'anthropic',
-    keyId: 'k-ant-1',
-    keyLabel: 'Claude Sonnet Fast Route',
-    gmailTag: 'itzraviking@gmail.com',
-    model: 'claude-3-7-sonnet-latest',
-    tokensUsed: 890,
-    status: 'success',
-    latencyMs: 615,
-    fallbackAttempted: false,
-    endpoint: '/api/v1/route',
-    promptPreview: 'Refactor this TypeScript state machine with exhaustive type guards...',
-  },
-  {
-    id: 'log-003',
-    timestamp: new Date(Date.now() - 120000).toISOString(),
-    provider: 'openai',
-    keyId: 'k-oai-2',
-    keyLabel: 'OpenAI Backup Tier-2',
-    gmailTag: 'team.enterprise@gmail.com',
-    model: 'gpt-4o',
-    tokensUsed: 620,
-    status: 'fallback_recovered',
-    latencyMs: 512,
-    fallbackAttempted: true,
-    fallbackChain: ['OpenAI Production Primary (429 Rate Limit)', 'OpenAI Backup Tier-2 (Success)'],
-    endpoint: '/api/v1/chat/completions',
-    promptPreview: 'Generate unit tests for edge runtime cache eviction...',
-  },
-  {
-    id: 'log-004',
-    timestamp: new Date(Date.now() - 320000).toISOString(),
-    provider: 'deepseek',
-    keyId: 'k-dsk-1',
-    keyLabel: 'DeepSeek Reasoner Pool',
-    gmailTag: 'itzraviking@gmail.com',
-    model: 'deepseek-chat',
-    tokensUsed: 1240,
-    status: 'success',
-    latencyMs: 785,
-    fallbackAttempted: false,
-    endpoint: '/api/v1/route',
-    promptPreview: 'Solve combinatorial constraint optimization problem with pruning...',
-  },
-];
-
-class RouterStore {
-  private state: RouterState;
-  private rotationCounters: Record<string, number> = {};
+class PersistentRouterStore {
+  private roundRobinIndices: Map<string, number> = new Map();
 
   constructor() {
-    this.state = this.loadState();
+    this.seedDefaultsIfEmpty();
   }
 
-  private loadState(): RouterState {
+  private seedDefaultsIfEmpty() {
+    const db = getDatabase();
     try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
+      const countRow = db.prepare('SELECT count(*) as cnt FROM api_keys').get() as { cnt: number };
+      if (countRow && countRow.cnt > 0) {
+        return; // Already initialized
       }
-      if (fs.existsSync(STORE_FILE)) {
-        const raw = fs.readFileSync(STORE_FILE, 'utf8');
-        const parsed = JSON.parse(raw);
-        return {
-          keys: parsed.keys || INITIAL_KEYS,
-          tokens: parsed.tokens || INITIAL_TOKENS,
-          logs: parsed.logs || INITIAL_LOGS,
-          gmailAccounts: parsed.gmailAccounts || INITIAL_GMAIL_ACCOUNTS,
-          settings: parsed.settings || {
-            rotationStrategy: 'round-robin',
-            autoFallback: true,
-            maxFallbackRetries: 3,
-            cooldownSeconds: 60,
-            rateLimitTolerance: 2,
-            logRetentionDays: 30,
-          },
-        };
-      }
-    } catch (e) {
-      console.warn('Could not read persistent store, using in-memory state', e);
-    }
 
-    return {
-      keys: INITIAL_KEYS,
-      tokens: INITIAL_TOKENS,
-      logs: INITIAL_LOGS,
-      gmailAccounts: INITIAL_GMAIL_ACCOUNTS,
-      settings: {
-        rotationStrategy: 'round-robin',
-        autoFallback: true,
-        maxFallbackRetries: 3,
-        cooldownSeconds: 60,
-        rateLimitTolerance: 2,
-        logRetentionDays: 30,
-      },
-    };
+      console.log('[Store] Seeding initial database tables...');
+
+      // Seed settings
+      db.prepare(`
+        INSERT OR REPLACE INTO settings (id, user_id, rotation_strategy, auto_fallback, max_fallback_retries, cooldown_seconds, rate_limit_tolerance, log_retention_days)
+        VALUES ('global-settings', 'default-user', 'round-robin', 1, 3, 60, 2, 30)
+      `).run();
+
+      // Seed default user
+      db.prepare(`
+        INSERT OR IGNORE INTO users (id, email, name, avatar, created_at)
+        VALUES ('default-user', 'itzraviking@gmail.com', 'Admin User', '', datetime('now'))
+      `).run();
+
+      // Seed initial Gmail accounts
+      db.prepare(`
+        INSERT OR IGNORE INTO gmail_accounts (id, user_id, email, name, is_primary, avatar_color, added_at)
+        VALUES 
+          ('gm-primary', 'default-user', 'itzraviking@gmail.com', 'Personal Admin', 1, '#5B6CFF', datetime('now')),
+          ('gm-work', 'default-user', 'team.enterprise@gmail.com', 'Enterprise Workspace', 0, '#10A37F', datetime('now'))
+      `).run();
+
+      // Seed Initial Keys
+      const initialKeys = [
+        {
+          id: 'k-google-live',
+          provider: 'google',
+          label: 'Google AI Studio Live Key',
+          raw: process.env.GEMINI_API_KEY || 'AIzaSyDemoSampleKeyForRouting123',
+          gmail: 'itzraviking@gmail.com',
+          priority: 1,
+        },
+        {
+          id: 'k-oai-1',
+          provider: 'openai',
+          label: 'OpenAI Production Primary',
+          raw: 'sk-proj-sample-primary-key-4892',
+          gmail: 'itzraviking@gmail.com',
+          priority: 1,
+        },
+        {
+          id: 'k-oai-2',
+          provider: 'openai',
+          label: 'OpenAI Backup Tier-2',
+          raw: 'sk-proj-backup-secondary-key-9011',
+          gmail: 'team.enterprise@gmail.com',
+          priority: 2,
+        },
+        {
+          id: 'k-ant-1',
+          provider: 'anthropic',
+          label: 'Claude Sonnet Fast Route',
+          raw: 'sk-ant-sample-fast-route-8201',
+          gmail: 'itzraviking@gmail.com',
+          priority: 1,
+        },
+        {
+          id: 'k-ant-2',
+          provider: 'anthropic',
+          label: 'Claude Team Fallback',
+          raw: 'sk-ant-sample-fallback-3319',
+          gmail: 'team.enterprise@gmail.com',
+          priority: 2,
+        },
+        {
+          id: 'k-groq-1',
+          provider: 'groq',
+          label: 'Groq LPU Instant Ultra',
+          raw: 'gsk_sample-groq-lpu-ultra-1109',
+          gmail: 'itzraviking@gmail.com',
+          priority: 1,
+        },
+        {
+          id: 'k-dsk-1',
+          provider: 'deepseek',
+          label: 'DeepSeek Reasoner Pool',
+          raw: 'sk-sample-deepseek-reasoner-5512',
+          gmail: 'itzraviking@gmail.com',
+          priority: 1,
+        },
+        {
+          id: 'k-mst-1',
+          provider: 'mistral',
+          label: 'Mistral Large Hub',
+          raw: 'mis_sample-mistral-hub-9422',
+          gmail: 'team.enterprise@gmail.com',
+          priority: 1,
+        },
+        {
+          id: 'k-or-1',
+          provider: 'openrouter',
+          label: 'OpenRouter Multi-Pass',
+          raw: 'sk-or-sample-router-multipass-7741',
+          gmail: 'itzraviking@gmail.com',
+          priority: 1,
+        },
+      ];
+
+      const insertKeyStmt = db.prepare(`
+        INSERT INTO api_keys (
+          id, user_id, provider, label, masked_key, encrypted_key, gmail_tag, status, priority,
+          total_requests, tokens_used, last_latency_ms, last_used_at, created_at, enabled
+        ) VALUES (
+          ?, 'default-user', ?, ?, ?, ?, ?, 'active', ?, 0, 0, 0, datetime('now'), datetime('now'), 1
+        )
+      `);
+
+      for (const k of initialKeys) {
+        insertKeyStmt.run(
+          k.id,
+          k.provider,
+          k.label,
+          maskApiKey(k.raw),
+          encryptKey(k.raw),
+          k.gmail,
+          k.priority
+        );
+      }
+
+      // Seed Initial Master Router Token
+      const masterRawToken = 'gw_live_8f49a2b9c7e1_master_router';
+      const masterHash = crypto.createHash('sha256').update(masterRawToken).digest('hex');
+      db.prepare(`
+        INSERT INTO router_tokens (id, user_id, label, token_hash, token_prefix, allowed_providers, total_calls, last_used, created_at)
+        VALUES ('tok-master-demo', 'default-user', 'Master External Client Token', ?, 'gw_live_', '["all"]', 45, datetime('now'), datetime('now'))
+      `).run(masterHash);
+
+      console.log('[Store] SQLite persistent tables seeded successfully.');
+    } catch (err) {
+      console.error('[Store] Error seeding defaults:', err);
+    }
   }
 
-  private persist() {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      fs.writeFileSync(STORE_FILE, JSON.stringify(this.state, null, 2), 'utf8');
-    } catch (e) {
-      console.warn('Failed to write router store to disk', e);
+  // --- API Keys Methods ---
+  public getKeys(gmail?: string, userId = 'default-user'): ApiKeyItem[] {
+    const db = getDatabase();
+    let rows: any[];
+    if (gmail && gmail !== 'all') {
+      rows = db.prepare("SELECT * FROM api_keys WHERE (user_id = ? OR user_id = 'default-user') AND gmail_tag = ? ORDER BY priority ASC, created_at DESC").all(userId, gmail);
+    } else {
+      rows = db.prepare("SELECT * FROM api_keys WHERE user_id = ? OR user_id = 'default-user' ORDER BY priority ASC, created_at DESC").all(userId);
     }
-  }
 
-  // --- Keys Management ---
-  public getKeys(gmailFilter?: string): ApiKeyItem[] {
-    this.refreshCooldowns();
-    if (gmailFilter && gmailFilter !== 'all') {
-      return this.state.keys.filter((k) => k.gmailTag === gmailFilter);
-    }
-    return this.state.keys;
+    return rows.map((r) => ({
+      id: r.id,
+      provider: r.provider as ProviderId,
+      label: r.label,
+      maskedKey: r.masked_key,
+      encryptedKey: r.encrypted_key,
+      gmailTag: r.gmail_tag,
+      status: r.status as any,
+      priority: r.priority,
+      totalRequests: r.total_requests,
+      tokensUsed: r.tokens_used,
+      lastLatencyMs: r.last_latency_ms,
+      lastUsedAt: r.last_used_at,
+      createdAt: r.created_at,
+      enabled: Boolean(r.enabled),
+      customBaseUrl: r.custom_base_url || undefined,
+      customAuthHeader: r.custom_auth_header || undefined,
+      cooldownUntil: r.cooldown_until || undefined,
+    }));
   }
 
   public getKeyById(id: string): ApiKeyItem | undefined {
-    return this.state.keys.find((k) => k.id === id);
+    const db = getDatabase();
+    const r = db.prepare('SELECT * FROM api_keys WHERE id = ?').get(id) as any;
+    if (!r) return undefined;
+    return {
+      id: r.id,
+      provider: r.provider as ProviderId,
+      label: r.label,
+      maskedKey: r.masked_key,
+      encryptedKey: r.encrypted_key,
+      gmailTag: r.gmail_tag,
+      status: r.status as any,
+      priority: r.priority,
+      totalRequests: r.total_requests,
+      tokensUsed: r.tokens_used,
+      lastLatencyMs: r.last_latency_ms,
+      lastUsedAt: r.last_used_at,
+      createdAt: r.created_at,
+      enabled: Boolean(r.enabled),
+      customBaseUrl: r.custom_base_url || undefined,
+      customAuthHeader: r.custom_auth_header || undefined,
+      cooldownUntil: r.cooldown_until || undefined,
+    };
   }
 
-  public addKey(params: {
+  public addKey(data: {
     provider: ProviderId;
     label: string;
     rawKey: string;
@@ -397,243 +287,400 @@ class RouterStore {
     priority?: number;
     customBaseUrl?: string;
     customAuthHeader?: string;
+    userId?: string;
   }): ApiKeyItem {
-    const id = 'k-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const masked = maskApiKey(params.rawKey);
-    const encrypted = encryptKey(params.rawKey);
+    const db = getDatabase();
+    const id = `k-${data.provider}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const maskedKey = maskApiKey(data.rawKey);
+    const encryptedKey = encryptKey(data.rawKey);
+    const userId = data.userId || 'default-user';
+    const createdAt = new Date().toISOString();
 
-    const newKey: ApiKeyItem = {
+    db.prepare(`
+      INSERT INTO api_keys (
+        id, user_id, provider, label, masked_key, encrypted_key, gmail_tag, status, priority,
+        total_requests, tokens_used, last_latency_ms, last_used_at, created_at, enabled,
+        custom_base_url, custom_auth_header
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, 0, 0, 0, NULL, ?, 1, ?, ?)
+    `).run(
       id,
-      provider: params.provider,
-      label: params.label.trim() || `${params.provider.toUpperCase()} Key`,
-      maskedKey: masked,
-      encryptedKey: encrypted,
-      gmailTag: params.gmailTag.trim() || 'itzraviking@gmail.com',
-      status: 'active',
-      priority: params.priority || 1,
-      totalRequests: 0,
-      tokensUsed: 0,
-      lastUsedAt: null,
-      createdAt: new Date().toISOString(),
-      enabled: true,
-      customBaseUrl: params.customBaseUrl,
-      customAuthHeader: params.customAuthHeader,
-    };
+      userId,
+      data.provider,
+      data.label || `${data.provider} Key`,
+      maskedKey,
+      encryptedKey,
+      data.gmailTag,
+      data.priority || 1,
+      createdAt,
+      data.customBaseUrl || null,
+      data.customAuthHeader || null
+    );
 
-    this.state.keys.unshift(newKey);
-    this.persist();
-    return newKey;
+    return this.getKeyById(id)!;
   }
 
   public updateKey(id: string, updates: Partial<ApiKeyItem>): ApiKeyItem | null {
-    const idx = this.state.keys.findIndex((k) => k.id === id);
-    if (idx === -1) return null;
-    this.state.keys[idx] = { ...this.state.keys[idx], ...updates };
-    this.persist();
-    return this.state.keys[idx];
+    const db = getDatabase();
+    const existing = this.getKeyById(id);
+    if (!existing) return null;
+
+    const merged = { ...existing, ...updates };
+
+    db.prepare(`
+      UPDATE api_keys SET
+        label = ?,
+        status = ?,
+        priority = ?,
+        total_requests = ?,
+        tokens_used = ?,
+        last_latency_ms = ?,
+        last_used_at = ?,
+        enabled = ?,
+        cooldown_until = ?,
+        custom_base_url = ?,
+        custom_auth_header = ?
+      WHERE id = ?
+    `).run(
+      merged.label,
+      merged.status,
+      merged.priority,
+      merged.totalRequests,
+      merged.tokensUsed,
+      merged.lastLatencyMs || 0,
+      merged.lastUsedAt || null,
+      merged.enabled ? 1 : 0,
+      merged.cooldownUntil || null,
+      merged.customBaseUrl || null,
+      merged.customAuthHeader || null,
+      id
+    );
+
+    return this.getKeyById(id)!;
   }
 
   public deleteKey(id: string): boolean {
-    const initialLen = this.state.keys.length;
-    this.state.keys = this.state.keys.filter((k) => k.id !== id);
-    if (this.state.keys.length !== initialLen) {
-      this.persist();
-      return true;
-    }
-    return false;
+    const db = getDatabase();
+    const res = db.prepare('DELETE FROM api_keys WHERE id = ?').run(id);
+    return Number(res.changes) > 0;
   }
 
-  // --- Tokens Management ---
-  public getTokens(): RouterToken[] {
-    return this.state.tokens;
-  }
+  public selectNextKey(provider: ProviderId, excludedKeyIds: string[] = [], userId = 'default-user'): ApiKeyItem | null {
+    const now = Date.now();
+    const db = getDatabase();
+    const rows = db.prepare(`
+      SELECT * FROM api_keys 
+      WHERE (user_id = ? OR user_id = 'default-user') 
+        AND provider = ? 
+        AND enabled = 1
+    `).all(userId, provider) as any[];
 
-  public createToken(label: string, allowedProviders: string[] = ['all']): { token: RouterToken; rawToken: string } {
-    const rawSecret = 'gw_' + crypto.randomBytes(18).toString('hex');
-    const tokenPrefix = rawSecret.slice(0, 11);
-    const tokenHash = crypto.createHash('sha256').update(rawSecret).digest('hex');
+    // Filter candidate keys:
+    // 1. Not in excludedKeyIds
+    // 2. Not in active cooldown
+    const candidateKeys: ApiKeyItem[] = rows
+      .map((r) => ({
+        id: r.id,
+        provider: r.provider as ProviderId,
+        label: r.label,
+        maskedKey: r.masked_key,
+        encryptedKey: r.encrypted_key,
+        gmailTag: r.gmail_tag,
+        status: r.status as any,
+        priority: r.priority,
+        totalRequests: r.total_requests,
+        tokensUsed: r.tokens_used,
+        lastLatencyMs: r.last_latency_ms,
+        lastUsedAt: r.last_used_at,
+        createdAt: r.created_at,
+        enabled: Boolean(r.enabled),
+        customBaseUrl: r.custom_base_url || undefined,
+        customAuthHeader: r.custom_auth_header || undefined,
+        cooldownUntil: r.cooldown_until || undefined,
+      }))
+      .filter((k) => {
+        if (excludedKeyIds.includes(k.id)) return false;
+        if (k.cooldownUntil && new Date(k.cooldownUntil).getTime() > now) return false;
+        return true;
+      });
 
-    const token: RouterToken = {
-      id: 'tok-' + Date.now().toString(36),
-      label: label.trim() || 'API Router Client Token',
-      tokenPrefix,
-      tokenHash,
-      createdAt: new Date().toISOString(),
-      lastUsed: null,
-      totalCalls: 0,
-      allowedProviders,
-      rawTokenPreview: rawSecret,
-    };
+    if (candidateKeys.length === 0) return null;
 
-    this.state.tokens.unshift(token);
-    this.persist();
-    return { token, rawToken: rawSecret };
-  }
+    const settings = this.getSettings(userId);
 
-  public revokeToken(id: string): boolean {
-    const initialLen = this.state.tokens.length;
-    this.state.tokens = this.state.tokens.filter((t) => t.id !== id);
-    if (this.state.tokens.length !== initialLen) {
-      this.persist();
-      return true;
-    }
-    return false;
-  }
-
-  public validateMasterToken(authHeader?: string): { valid: boolean; token?: RouterToken } {
-    if (!authHeader) return { valid: false };
-    const tokenString = authHeader.replace(/^Bearer\s+/i, '').trim();
-    if (!tokenString) return { valid: false };
-
-    // Built-in dev / test master tokens
-    if (tokenString === 'dev-master-token' || tokenString === 'gw_live_8f49a2b9c7e1_master_router') {
-      return { valid: true, token: this.state.tokens[0] };
+    // Rotation Strategy:
+    if (settings.rotationStrategy === 'priority-weight') {
+      candidateKeys.sort((a, b) => a.priority - b.priority || a.totalRequests - b.totalRequests);
+      return candidateKeys[0];
     }
 
-    const hashed = crypto.createHash('sha256').update(tokenString).digest('hex');
-    const match = this.state.tokens.find((t) => t.tokenHash === hashed || t.rawTokenPreview === tokenString);
-    if (match) {
-      match.lastUsed = new Date().toISOString();
-      match.totalCalls += 1;
-      this.persist();
-      return { valid: true, token: match };
+    if (settings.rotationStrategy === 'least-recently-used') {
+      candidateKeys.sort((a, b) => {
+        const timeA = a.lastUsedAt ? new Date(a.lastUsedAt).getTime() : 0;
+        const timeB = b.lastUsedAt ? new Date(b.lastUsedAt).getTime() : 0;
+        return timeA - timeB;
+      });
+      return candidateKeys[0];
     }
 
-    return { valid: false };
+    // Default: Round-Robin
+    const currentIndex = this.roundRobinIndices.get(provider) || 0;
+    const selectedKey = candidateKeys[currentIndex % candidateKeys.length];
+    this.roundRobinIndices.set(provider, (currentIndex + 1) % candidateKeys.length);
+    return selectedKey;
   }
 
-  // --- Gmail Accounts ---
-  public getGmailAccounts(): GmailAccount[] {
-    return this.state.gmailAccounts.map((acc) => ({
-      ...acc,
-      keyCount: this.state.keys.filter((k) => k.gmailTag === acc.email).length,
+  public markKeyRateLimited(id: string, cooldownSecs?: number): void {
+    const key = this.getKeyById(id);
+    if (!key) return;
+    const settings = this.getSettings();
+    const duration = (cooldownSecs || settings.cooldownSeconds) * 1000;
+    const cooldownUntil = new Date(Date.now() + duration).toISOString();
+    this.updateKey(id, {
+      status: 'rate-limited',
+      cooldownUntil,
+    });
+  }
+
+  public recordKeyUsage(id: string, tokens: number, latencyMs: number): void {
+    const key = this.getKeyById(id);
+    if (!key) return;
+    this.updateKey(id, {
+      totalRequests: key.totalRequests + 1,
+      tokensUsed: key.tokensUsed + tokens,
+      lastLatencyMs: latencyMs,
+      lastUsedAt: new Date().toISOString(),
+      status: 'active',
+      cooldownUntil: null,
+    });
+  }
+
+  // --- Router Tokens Methods ---
+  public getTokens(userId = 'default-user'): RouterToken[] {
+    const db = getDatabase();
+    const rows = db.prepare("SELECT * FROM router_tokens WHERE user_id = ? OR user_id = 'default-user' ORDER BY created_at DESC").all(userId) as any[];
+    return rows.map((r) => ({
+      id: r.id,
+      label: r.label,
+      tokenPrefix: r.token_prefix,
+      allowedProviders: JSON.parse(r.allowed_providers || '["all"]'),
+      totalCalls: r.total_calls,
+      lastUsed: r.last_used || null,
+      createdAt: r.created_at,
     }));
   }
 
-  public addGmailAccount(email: string, name: string): GmailAccount {
-    const existing = this.state.gmailAccounts.find((a) => a.email.toLowerCase() === email.toLowerCase());
-    if (existing) return existing;
+  public createToken(label: string, allowedProviders: string[] = ['all'], userId = 'default-user'): { token: RouterToken; rawToken: string } {
+    const db = getDatabase();
+    const rawSecret = crypto.randomBytes(24).toString('hex');
+    const rawToken = `gw_live_${rawSecret}`;
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const id = `tok-${Date.now().toString(36)}`;
+    const tokenPrefix = rawToken.slice(0, 8);
+    const createdAt = new Date().toISOString();
 
-    const colors = ['#5B6CFF', '#10A37F', '#D97706', '#EC4899', '#8B5CF6', '#14B8A6'];
-    const avatarColor = colors[this.state.gmailAccounts.length % colors.length];
+    db.prepare(`
+      INSERT INTO router_tokens (id, user_id, label, token_hash, token_prefix, allowed_providers, total_calls, last_used, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)
+    `).run(id, userId, label, tokenHash, tokenPrefix, JSON.stringify(allowedProviders), createdAt);
 
-    const newAcc: GmailAccount = {
-      id: 'gm-' + Date.now().toString(36),
-      email: email.trim().toLowerCase(),
-      name: name.trim() || email.split('@')[0],
-      isPrimary: this.state.gmailAccounts.length === 0,
+    return {
+      token: {
+        id,
+        label,
+        tokenPrefix,
+        allowedProviders,
+        totalCalls: 0,
+        lastUsed: null,
+        createdAt,
+      },
+      rawToken,
+    };
+  }
+
+  public revokeToken(id: string): boolean {
+    const db = getDatabase();
+    const res = db.prepare('DELETE FROM router_tokens WHERE id = ?').run(id);
+    return Number(res.changes) > 0;
+  }
+
+  public validateMasterToken(authHeader?: string): { valid: boolean; token?: RouterToken; error?: string } {
+    if (!authHeader) {
+      return { valid: false, error: 'Authorization header missing' };
+    }
+
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (!match) {
+      return { valid: false, error: 'Invalid authorization format. Use Bearer <token>' };
+    }
+
+    const rawToken = match[1].trim();
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    const db = getDatabase();
+    const row = db.prepare('SELECT * FROM router_tokens WHERE token_hash = ?').get(tokenHash) as any;
+    if (!row) {
+      return { valid: false, error: 'Master Router token invalid or revoked' };
+    }
+
+    // Update token usage count
+    db.prepare("UPDATE router_tokens SET total_calls = total_calls + 1, last_used = datetime('now') WHERE id = ?").run(row.id);
+
+    return {
+      valid: true,
+      token: {
+        id: row.id,
+        label: row.label,
+        tokenPrefix: row.token_prefix,
+        allowedProviders: JSON.parse(row.allowed_providers || '["all"]'),
+        totalCalls: row.total_calls + 1,
+        lastUsed: new Date().toISOString(),
+        createdAt: row.created_at,
+      },
+    };
+  }
+
+  // --- Gmail Accounts Methods ---
+  public getGmailAccounts(userId = 'default-user'): GmailAccount[] {
+    const db = getDatabase();
+    const rows = db.prepare("SELECT * FROM gmail_accounts WHERE user_id = ? OR user_id = 'default-user' ORDER BY is_primary DESC, added_at ASC").all(userId) as any[];
+    
+    // Count keys per gmail
+    const keyCounts = db.prepare('SELECT gmail_tag, count(*) as count FROM api_keys GROUP BY gmail_tag').all() as any[];
+    const countMap = new Map<string, number>();
+    for (const kc of keyCounts) {
+      countMap.set(kc.gmail_tag, kc.count);
+    }
+
+    return rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      name: r.name,
+      isPrimary: Boolean(r.is_primary),
+      avatarColor: r.avatar_color || '#5B6CFF',
+      addedAt: r.added_at,
+      keyCount: countMap.get(r.email) || 0,
+    }));
+  }
+
+  public addGmailAccount(email: string, name = '', userId = 'default-user'): GmailAccount {
+    const db = getDatabase();
+    const id = `gm-${Date.now().toString(36)}`;
+    const colors = ['#5B6CFF', '#10A37F', '#F59E0B', '#EC4899', '#8B5CF6', '#3B82F6'];
+    const avatarColor = colors[Math.floor(Math.random() * colors.length)];
+    const addedAt = new Date().toISOString();
+
+    db.prepare(`
+      INSERT OR IGNORE INTO gmail_accounts (id, user_id, email, name, is_primary, avatar_color, added_at)
+      VALUES (?, ?, ?, ?, 0, ?, ?)
+    `).run(id, userId, email, name || email.split('@')[0], avatarColor, addedAt);
+
+    return {
+      id,
+      email,
+      name: name || email.split('@')[0],
+      isPrimary: false,
       avatarColor,
-      addedAt: new Date().toISOString(),
+      addedAt,
+      keyCount: 0,
     };
-
-    this.state.gmailAccounts.push(newAcc);
-    this.persist();
-    return newAcc;
   }
 
-  // --- Settings ---
-  public getSettings(): RouterSettings {
-    return this.state.settings;
+  // --- Usage Logs Methods ---
+  public getLogs(limit = 100, userId = 'default-user'): UsageLog[] {
+    const db = getDatabase();
+    const rows = db.prepare("SELECT * FROM usage_logs WHERE user_id = ? OR user_id = 'default-user' ORDER BY timestamp DESC LIMIT ?").all(userId, limit) as any[];
+
+    return rows.map((r) => ({
+      id: r.id,
+      timestamp: r.timestamp,
+      provider: r.provider as ProviderId,
+      keyId: r.key_id,
+      keyLabel: r.key_label,
+      gmailTag: r.gmail_tag,
+      model: r.model,
+      tokensUsed: r.tokens_used,
+      status: r.status as any,
+      latencyMs: r.latency_ms,
+      fallbackAttempted: Boolean(r.fallback_attempted),
+      fallbackChain: r.fallback_chain ? JSON.parse(r.fallback_chain) : undefined,
+      endpoint: r.endpoint,
+      promptPreview: r.prompt_preview || undefined,
+    }));
   }
 
-  public updateSettings(newSettings: Partial<RouterSettings>): RouterSettings {
-    this.state.settings = { ...this.state.settings, ...newSettings };
-    this.persist();
-    return this.state.settings;
-  }
+  public addLog(log: Omit<UsageLog, 'id' | 'timestamp'>, userId = 'default-user'): UsageLog {
+    const db = getDatabase();
+    const id = `log-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const timestamp = new Date().toISOString();
 
-  // --- Logs ---
-  public getLogs(limit = 100): UsageLog[] {
-    return this.state.logs.slice(0, limit);
-  }
-
-  public addLog(log: Omit<UsageLog, 'id' | 'timestamp'>): UsageLog {
-    const fullLog: UsageLog = {
-      id: 'log-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
-      timestamp: new Date().toISOString(),
-      ...log,
-    };
-    this.state.logs.unshift(fullLog);
-    if (this.state.logs.length > 500) {
-      this.state.logs = this.state.logs.slice(0, 500);
-    }
-    this.persist();
-    return fullLog;
-  }
-
-  public clearLogs(): void {
-    this.state.logs = [];
-    this.persist();
-  }
-
-  // --- Rotation & Fallback Engine ---
-  private refreshCooldowns() {
-    const now = Date.now();
-    for (const key of this.state.keys) {
-      if (key.status === 'cooldown' && key.cooldownUntil && now >= key.cooldownUntil) {
-        key.status = 'active';
-        key.cooldownUntil = null;
-      }
-    }
-  }
-
-  public getCandidateKeys(provider: ProviderId): ApiKeyItem[] {
-    this.refreshCooldowns();
-    return this.state.keys.filter(
-      (k) => k.provider === provider && k.enabled && k.status !== 'invalid' && k.status !== 'expired'
+    db.prepare(`
+      INSERT INTO usage_logs (
+        id, user_id, timestamp, provider, key_id, key_label, gmail_tag, model,
+        tokens_used, status, latency_ms, fallback_attempted, fallback_chain, endpoint, prompt_preview
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      userId,
+      timestamp,
+      log.provider,
+      log.keyId,
+      log.keyLabel,
+      log.gmailTag,
+      log.model,
+      log.tokensUsed,
+      log.status,
+      log.latencyMs,
+      log.fallbackAttempted ? 1 : 0,
+      log.fallbackChain ? JSON.stringify(log.fallbackChain) : null,
+      log.endpoint,
+      log.promptPreview || null
     );
+
+    return { id, timestamp, ...log };
   }
 
-  public selectNextKey(provider: ProviderId, excludedKeyIds: string[] = []): ApiKeyItem | null {
-    const candidates = this.getCandidateKeys(provider).filter((k) => !excludedKeyIds.includes(k.id));
-    if (candidates.length === 0) return null;
-
-    // Prefer active keys over cooldown keys if any
-    const activeCandidates = candidates.filter((k) => k.status === 'active');
-    const pool = activeCandidates.length > 0 ? activeCandidates : candidates;
-
-    const strategy = this.state.settings.rotationStrategy;
-
-    if (strategy === 'least-recently-used') {
-      const sorted = [...pool].sort((a, b) => {
-        if (!a.lastUsedAt) return -1;
-        if (!b.lastUsedAt) return 1;
-        return new Date(a.lastUsedAt).getTime() - new Date(b.lastUsedAt).getTime();
-      });
-      return sorted[0];
-    }
-
-    if (strategy === 'priority-weight') {
-      const sorted = [...pool].sort((a, b) => a.priority - b.priority);
-      return sorted[0];
-    }
-
-    // Default: Round-robin
-    const currentCounter = this.rotationCounters[provider] || 0;
-    const selected = pool[currentCounter % pool.length];
-    this.rotationCounters[provider] = currentCounter + 1;
-    return selected;
+  public clearLogs(userId = 'default-user'): void {
+    const db = getDatabase();
+    db.prepare("DELETE FROM usage_logs WHERE user_id = ? OR user_id = 'default-user'").run(userId);
   }
 
-  public recordKeyUsage(keyId: string, tokens: number, latencyMs: number) {
-    const key = this.getKeyById(keyId);
-    if (key) {
-      key.totalRequests += 1;
-      key.tokensUsed += tokens;
-      key.lastUsedAt = new Date().toISOString();
-      key.lastLatencyMs = latencyMs;
-      this.persist();
-    }
+  // --- Settings Methods ---
+  public getSettings(userId = 'default-user'): RouterSettings {
+    const db = getDatabase();
+    const r = db.prepare("SELECT * FROM settings WHERE user_id = ? OR id = 'global-settings' LIMIT 1").get(userId) as any;
+    if (!r) return DEFAULT_SETTINGS;
+
+    return {
+      rotationStrategy: (r.rotation_strategy as any) || 'round-robin',
+      autoFallback: Boolean(r.auto_fallback),
+      maxFallbackRetries: r.max_fallback_retries ?? 3,
+      cooldownSeconds: r.cooldown_seconds ?? 60,
+      rateLimitTolerance: r.rate_limit_tolerance ?? 2,
+      logRetentionDays: r.log_retention_days ?? 30,
+    };
   }
 
-  public markKeyRateLimited(keyId: string) {
-    const key = this.getKeyById(keyId);
-    if (key) {
-      key.status = 'cooldown';
-      key.cooldownUntil = Date.now() + this.state.settings.cooldownSeconds * 1000;
-      this.persist();
-    }
+  public updateSettings(updates: Partial<RouterSettings>, userId = 'default-user'): RouterSettings {
+    const current = this.getSettings(userId);
+    const merged = { ...current, ...updates };
+    const db = getDatabase();
+
+    db.prepare(`
+      INSERT OR REPLACE INTO settings (
+        id, user_id, rotation_strategy, auto_fallback, max_fallback_retries, cooldown_seconds, rate_limit_tolerance, log_retention_days
+      ) VALUES ('global-settings', ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      userId,
+      merged.rotationStrategy,
+      merged.autoFallback ? 1 : 0,
+      merged.maxFallbackRetries,
+      merged.cooldownSeconds,
+      merged.rateLimitTolerance,
+      merged.logRetentionDays
+    );
+
+    return merged;
   }
 }
 
-export const routerStore = new RouterStore();
+export const routerStore = new PersistentRouterStore();

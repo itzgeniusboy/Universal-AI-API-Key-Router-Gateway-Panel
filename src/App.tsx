@@ -7,7 +7,15 @@ import { RouterTokensView } from './components/RouterTokensView';
 import { SettingsView } from './components/SettingsView';
 import { ThreeCanvas } from './components/ThreeCanvas';
 import { UsageLogsView } from './components/UsageLogsView';
-import { ApiKeyItem, GmailAccount, ProviderId, RouterSettings, RouterToken, UsageLog } from './types';
+import {
+  ApiKeyItem,
+  GmailAccount,
+  ProviderId,
+  RouterSettings,
+  RouterToken,
+  UsageLog,
+  UserProfile,
+} from './types';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'overview' | 'keys' | 'simulator' | 'tokens' | 'logs' | 'settings'>('overview');
@@ -15,7 +23,8 @@ export default function App() {
   const [tokens, setTokens] = useState<RouterToken[]>([]);
   const [logs, setLogs] = useState<UsageLog[]>([]);
   const [gmailAccounts, setGmailAccounts] = useState<GmailAccount[]>([]);
-  const [selectedGmail, setSelectedGmail] = useState<string>('itzraviking@gmail.com');
+  const [selectedGmail, setSelectedGmail] = useState<string>('all');
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [settings, setSettings] = useState<RouterSettings>({
     rotationStrategy: 'round-robin',
     autoFallback: true,
@@ -27,23 +36,31 @@ export default function App() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isAddKeyModalOpen, setIsAddKeyModalOpen] = useState(false);
-  const [isAddGmailModalOpen, setIsAddGmailModalOpen] = useState(false);
 
-  // Fetch all initial dashboard data
+  // Fetch initial dashboard state & user session
   const fetchData = async () => {
     try {
-      const [keysRes, tokensRes, logsRes, gmailRes, settingsRes] = await Promise.all([
-        fetch('/api/keys').then((r) => r.json()),
-        fetch('/api/tokens').then((r) => r.json()),
-        fetch('/api/logs').then((r) => r.json()),
-        fetch('/api/gmail-accounts').then((r) => r.json()),
-        fetch('/api/settings').then((r) => r.json()),
+      const [sessionRes, keysRes, tokensRes, logsRes, gmailRes, settingsRes] = await Promise.all([
+        fetch('/api/auth/session').then((r) => r.json()).catch(() => ({})),
+        fetch('/api/keys').then((r) => r.json()).catch(() => ({})),
+        fetch('/api/tokens').then((r) => r.json()).catch(() => ({})),
+        fetch('/api/logs').then((r) => r.json()).catch(() => ({})),
+        fetch('/api/gmail-accounts').then((r) => r.json()).catch(() => ({})),
+        fetch('/api/settings').then((r) => r.json()).catch(() => ({})),
       ]);
 
+      if (sessionRes.user) {
+        setUser(sessionRes.user);
+      }
       if (keysRes.keys) setKeys(keysRes.keys);
       if (tokensRes.tokens) setTokens(tokensRes.tokens);
       if (logsRes.logs) setLogs(logsRes.logs);
-      if (gmailRes.accounts) setGmailAccounts(gmailRes.accounts);
+      if (gmailRes.accounts) {
+        setGmailAccounts(gmailRes.accounts);
+        if (selectedGmail === 'all' && gmailRes.accounts.length > 0) {
+          // Keep 'all' or default to primary
+        }
+      }
       if (settingsRes.settings) setSettings(settingsRes.settings);
     } catch (err) {
       console.error('Error fetching dashboard state:', err);
@@ -55,6 +72,27 @@ export default function App() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Handlers for Google Auth Connection
+  const handleConnectGoogle = async (email: string, name?: string) => {
+    try {
+      const res = await fetch('/api/auth/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name }),
+      });
+      const data = await res.json();
+      if (data.success && data.user) {
+        setUser(data.user);
+        setSelectedGmail(data.user.email);
+        // Refresh accounts and keys
+        const accRes = await fetch('/api/gmail-accounts').then((r) => r.json());
+        if (accRes.accounts) setGmailAccounts(accRes.accounts);
+      }
+    } catch (err) {
+      console.error('Failed to link Google account:', err);
+    }
+  };
 
   // Handlers for Key CRUD
   const handleAddKey = async (params: {
@@ -194,12 +232,9 @@ export default function App() {
 
   return (
     <div className="relative min-h-screen bg-[#0B0D10] text-[#E1E4EA]">
-      {/* 3D Glass Prism Floating Canvas Background */}
-      <ThreeCanvas />
-
-      {/* Main App Container */}
-      <div className="relative z-10 flex min-h-screen flex-col">
-        {/* Navigation Header */}
+      {/* 3D Glass Prism Floating Canvas Background Header Section */}
+      <div className="relative overflow-hidden">
+        <ThreeCanvas />
         <Navbar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -207,19 +242,21 @@ export default function App() {
           selectedGmail={selectedGmail}
           setSelectedGmail={setSelectedGmail}
           onOpenAddKey={() => setIsAddKeyModalOpen(true)}
-          onOpenAddGmail={() => {
-            setActiveTab('settings');
-          }}
+          onOpenAddGmail={() => setActiveTab('settings')}
           totalKeysCount={keys.length}
+          user={user}
+          onConnectGoogle={handleConnectGoogle}
         />
+      </div>
 
-        {/* Content Area */}
+      {/* Main Content Area - Clean, Flat, High-Legibility Data Views */}
+      <div className="relative z-10 flex min-h-[calc(100vh-120px)] flex-col">
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
               <div className="flex items-center space-x-3 text-sm text-[#8A94A6]">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#5B6CFF] border-t-transparent" />
-                <span>Initializing Gateway Mesh & Vault...</span>
+                <span>Initializing Gateway Mesh & Encrypted Vault...</span>
               </div>
             </div>
           ) : (
@@ -279,10 +316,10 @@ export default function App() {
         </main>
 
         {/* Minimal Footer */}
-        <footer className="border-t border-white/[0.04] bg-[#0A0C0F]/60 py-4 text-center text-xs text-[#6C768A]">
+        <footer className="border-t border-white/[0.04] bg-[#0B0D10]/90 py-4 text-center text-xs text-[#6C768A]">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
             <span>Universal AI Router Gateway • Port 3000 Ingress</span>
-            <span>AES-256 Encrypted Vault • Auto-Rotation & Fallback Active</span>
+            <span>AES-256-GCM Encrypted Vault • Rate-Limit Auto-Rotation Active</span>
           </div>
         </footer>
       </div>
