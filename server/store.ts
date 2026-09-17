@@ -101,15 +101,15 @@ class PersistentRouterStore {
       // Seed default user
       db.prepare(`
         INSERT OR IGNORE INTO users (id, email, name, avatar, created_at)
-        VALUES ('default-user', 'itzraviking@gmail.com', 'Admin User', '', datetime('now'))
+        VALUES ('default-user', 'admin@gateway.internal', 'Admin User', '', datetime('now'))
       `).run();
 
-      // Seed initial Gmail accounts
+      // Seed initial accounts
       db.prepare(`
         INSERT OR IGNORE INTO gmail_accounts (id, user_id, email, name, is_primary, avatar_color, added_at)
         VALUES 
-          ('gm-primary', 'default-user', 'itzraviking@gmail.com', 'Personal Admin', 1, '#5B6CFF', datetime('now')),
-          ('gm-work', 'default-user', 'team.enterprise@gmail.com', 'Enterprise Workspace', 0, '#10A37F', datetime('now'))
+          ('gm-primary', 'default-user', 'admin@gateway.internal', 'Gateway Admin', 1, '#5B6CFF', datetime('now')),
+          ('gm-work', 'default-user', 'team.enterprise@gateway.internal', 'Enterprise Workspace', 0, '#10A37F', datetime('now'))
       `).run();
 
       // Seed Initial Keys
@@ -119,7 +119,7 @@ class PersistentRouterStore {
           provider: 'google',
           label: 'Google AI Studio Live Key',
           raw: process.env.GEMINI_API_KEY || 'AIzaSyDemoSampleKeyForRouting123',
-          gmail: 'itzraviking@gmail.com',
+          gmail: 'admin@gateway.internal',
           priority: 1,
         },
         {
@@ -127,7 +127,7 @@ class PersistentRouterStore {
           provider: 'openai',
           label: 'OpenAI Production Primary',
           raw: 'sk-proj-sample-primary-key-4892',
-          gmail: 'itzraviking@gmail.com',
+          gmail: 'admin@gateway.internal',
           priority: 1,
         },
         {
@@ -135,7 +135,7 @@ class PersistentRouterStore {
           provider: 'openai',
           label: 'OpenAI Backup Tier-2',
           raw: 'sk-proj-backup-secondary-key-9011',
-          gmail: 'team.enterprise@gmail.com',
+          gmail: 'team.enterprise@gateway.internal',
           priority: 2,
         },
         {
@@ -143,7 +143,7 @@ class PersistentRouterStore {
           provider: 'anthropic',
           label: 'Claude Sonnet Fast Route',
           raw: 'sk-ant-sample-fast-route-8201',
-          gmail: 'itzraviking@gmail.com',
+          gmail: 'admin@gateway.internal',
           priority: 1,
         },
         {
@@ -151,7 +151,7 @@ class PersistentRouterStore {
           provider: 'anthropic',
           label: 'Claude Team Fallback',
           raw: 'sk-ant-sample-fallback-3319',
-          gmail: 'team.enterprise@gmail.com',
+          gmail: 'team.enterprise@gateway.internal',
           priority: 2,
         },
         {
@@ -159,7 +159,7 @@ class PersistentRouterStore {
           provider: 'groq',
           label: 'Groq LPU Instant Ultra',
           raw: 'gsk_sample-groq-lpu-ultra-1109',
-          gmail: 'itzraviking@gmail.com',
+          gmail: 'admin@gateway.internal',
           priority: 1,
         },
         {
@@ -167,7 +167,7 @@ class PersistentRouterStore {
           provider: 'deepseek',
           label: 'DeepSeek Reasoner Pool',
           raw: 'sk-sample-deepseek-reasoner-5512',
-          gmail: 'itzraviking@gmail.com',
+          gmail: 'admin@gateway.internal',
           priority: 1,
         },
         {
@@ -175,7 +175,7 @@ class PersistentRouterStore {
           provider: 'mistral',
           label: 'Mistral Large Hub',
           raw: 'mis_sample-mistral-hub-9422',
-          gmail: 'team.enterprise@gmail.com',
+          gmail: 'team.enterprise@gateway.internal',
           priority: 1,
         },
         {
@@ -183,7 +183,7 @@ class PersistentRouterStore {
           provider: 'openrouter',
           label: 'OpenRouter Multi-Pass',
           raw: 'sk-or-sample-router-multipass-7741',
-          gmail: 'itzraviking@gmail.com',
+          gmail: 'admin@gateway.internal',
           priority: 1,
         },
       ];

@@ -1,207 +1,145 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
+import { Float } from '@react-three/drei';
+import * as THREE from 'three';
 
-/**
- * Interactive 3D Canvas element with subtle floating frosted glass prisms & geometric planes.
- * Follows the design language:
- * - Deep graphite/charcoal tones
- * - Subtle ambient light, low opacity reflections
- * - Mouse parallax tilt
- * - NO loud neon glow
- */
-export const ThreeCanvas: React.FC = () => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+// Floating glass geometric prism
+const GlassFacet: React.FC<{
+  position: [number, number, number];
+  rotation: [number, number, number];
+  scale?: number;
+  geometryType?: 'octahedron' | 'icosahedron' | 'box';
+}> = ({ position, rotation, scale = 1, geometryType = 'octahedron' }) => {
+  const meshRef = useRef<THREE.Mesh>(null);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let animationFrameId: number;
-    let width = (canvas.width = canvas.parentElement?.clientWidth || window.innerWidth);
-    let height = (canvas.height = canvas.parentElement?.clientHeight || window.innerHeight);
-
-    let mouseX = 0;
-    let mouseY = 0;
-    let targetMouseX = 0;
-    let targetMouseY = 0;
-
-    const handleResize = () => {
-      if (!canvas) return;
-      width = canvas.width = canvas.parentElement?.clientWidth || window.innerWidth;
-      height = canvas.height = canvas.parentElement?.clientHeight || window.innerHeight;
-    };
-
-    window.addEventListener('resize', handleResize);
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      targetMouseX = ((e.clientX - rect.left) / width - 0.5) * 2;
-      targetMouseY = ((e.clientY - rect.top) / height - 0.5) * 2;
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-
-    // 3D Nodes representing abstract floating glass geometric facets
-    interface Node3D {
-      x: number;
-      y: number;
-      z: number;
-      size: number;
-      rx: number;
-      ry: number;
-      rz: number;
-      speedX: number;
-      speedY: number;
-      speedZ: number;
-      rotSpeedX: number;
-      rotSpeedY: number;
-      shape: 'cube' | 'octa' | 'plane';
-      opacity: number;
-    }
-
-    const nodes: Node3D[] = [
-      { x: -280, y: -90, z: 200, size: 48, rx: 0.2, ry: 0.4, rz: 0.1, speedX: 0.2, speedY: -0.15, speedZ: 0.1, rotSpeedX: 0.003, rotSpeedY: 0.004, shape: 'plane', opacity: 0.14 },
-      { x: 320, y: -120, z: 150, size: 56, rx: 0.8, ry: 0.2, rz: 0.5, speedX: -0.15, speedY: 0.2, speedZ: -0.1, rotSpeedX: -0.002, rotSpeedY: 0.003, shape: 'cube', opacity: 0.12 },
-      { x: -180, y: 140, z: 120, size: 40, rx: 0.4, ry: 0.7, rz: 0.2, speedX: 0.18, speedY: 0.12, speedZ: 0.05, rotSpeedX: 0.004, rotSpeedY: -0.002, shape: 'octa', opacity: 0.15 },
-      { x: 260, y: 130, z: 180, size: 52, rx: 0.5, ry: 0.3, rz: 0.8, speedX: -0.12, speedY: -0.18, speedZ: 0.08, rotSpeedX: 0.002, rotSpeedY: 0.004, shape: 'plane', opacity: 0.13 },
-      { x: 0, y: -160, z: 240, size: 64, rx: 0.1, ry: 0.9, rz: 0.3, speedX: 0.1, speedY: 0.08, speedZ: -0.12, rotSpeedX: -0.003, rotSpeedY: 0.002, shape: 'octa', opacity: 0.16 },
-      { x: -340, y: 30, z: 300, size: 36, rx: 0.7, ry: 0.1, rz: 0.4, speedX: 0.14, speedY: -0.1, speedZ: 0.06, rotSpeedX: 0.003, rotSpeedY: 0.003, shape: 'cube', opacity: 0.1 },
-      { x: 380, y: 10, z: 220, size: 44, rx: 0.3, ry: 0.6, rz: 0.2, speedX: -0.1, speedY: 0.15, speedZ: -0.08, rotSpeedX: -0.002, rotSpeedY: -0.003, shape: 'plane', opacity: 0.12 },
-    ];
-
-    // Background ambient particles
-    const particles = Array.from({ length: 45 }, () => ({
-      x: (Math.random() - 0.5) * 800,
-      y: (Math.random() - 0.5) * 600,
-      z: Math.random() * 400 + 50,
-      radius: Math.random() * 1.5 + 0.5,
-      alpha: Math.random() * 0.3 + 0.1,
-    }));
-
-    const render = () => {
-      // Smooth mouse follow
-      mouseX += (targetMouseX - mouseX) * 0.04;
-      mouseY += (targetMouseY - mouseY) * 0.04;
-
-      ctx.clearRect(0, 0, width, height);
-
-      const fov = 450;
-      const centerX = width / 2 + mouseX * 40;
-      const centerY = height / 2 + mouseY * 30;
-
-      // Draw subtle ambient particles
-      for (const p of particles) {
-        p.z -= 0.25;
-        if (p.z < 20) p.z = 450;
-
-        const scale = fov / (fov + p.z);
-        const px = centerX + p.x * scale;
-        const py = centerY + p.y * scale;
-
-        if (px >= 0 && px <= width && py >= 0 && py <= height) {
-          ctx.beginPath();
-          ctx.arc(px, py, p.radius * scale, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(160, 175, 210, ${p.alpha * scale * 0.8})`;
-          ctx.fill();
-        }
-      }
-
-      // Draw 3D geometric shapes
-      for (const node of nodes) {
-        // Update rotations
-        node.rx += node.rotSpeedX;
-        node.ry += node.rotSpeedY;
-
-        // Hover movement
-        node.x += node.speedX;
-        node.y += node.speedY;
-
-        if (Math.abs(node.x) > 420) node.speedX *= -1;
-        if (Math.abs(node.y) > 220) node.speedY *= -1;
-
-        const scale = fov / (fov + node.z);
-        const scrX = centerX + node.x * scale;
-        const scrY = centerY + node.y * scale;
-
-        ctx.save();
-        ctx.translate(scrX, scrY);
-        ctx.scale(scale, scale);
-
-        // Subtle glass outline & soft tinted fill (indigo/slate tones)
-        ctx.lineWidth = 1.2;
-        ctx.strokeStyle = `rgba(255, 255, 255, ${node.opacity})`;
-        ctx.fillStyle = `rgba(91, 108, 255, ${node.opacity * 0.22})`;
-
-        if (node.shape === 'plane') {
-          // Floating tilted glass card
-          const w = node.size * 1.6;
-          const h = node.size * 1.0;
-          const cosY = Math.cos(node.ry);
-          const sinY = Math.sin(node.ry);
-
-          ctx.beginPath();
-          ctx.moveTo(-w / 2 * cosY, -h / 2 + sinY * 10);
-          ctx.lineTo(w / 2 * cosY, -h / 2 - sinY * 10);
-          ctx.lineTo(w / 2 * cosY, h / 2 - sinY * 10);
-          ctx.lineTo(-w / 2 * cosY, h / 2 + sinY * 10);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
-
-          // Internal subtle refraction accent line
-          ctx.beginPath();
-          ctx.moveTo(-w / 3 * cosY, -h / 4);
-          ctx.lineTo(w / 3 * cosY, -h / 4);
-          ctx.strokeStyle = `rgba(255, 255, 255, ${node.opacity * 0.5})`;
-          ctx.stroke();
-        } else if (node.shape === 'cube') {
-          // Glass cube projection
-          const s = node.size;
-          const cos = Math.cos(node.ry);
-          const sin = Math.sin(node.rx);
-
-          ctx.beginPath();
-          ctx.rect(-s / 2 * cos, -s / 2 * sin, s * cos, s * sin);
-          ctx.fill();
-          ctx.stroke();
-
-          ctx.beginPath();
-          ctx.rect(-s / 3 * cos, -s / 3 * sin, s * cos, s * sin);
-          ctx.strokeStyle = `rgba(255, 255, 255, ${node.opacity * 0.4})`;
-          ctx.stroke();
-        } else {
-          // Octahedron facet
-          const s = node.size;
-          ctx.beginPath();
-          ctx.moveTo(0, -s);
-          ctx.lineTo(s * 0.8, 0);
-          ctx.lineTo(0, s);
-          ctx.lineTo(-s * 0.8, 0);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
-        }
-
-        ctx.restore();
-      }
-
-      animationFrameId = requestAnimationFrame(render);
-    };
-
-    render();
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('mousemove', handleMouseMove);
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, []);
+  useFrame((state, delta) => {
+    if (!meshRef.current) return;
+    meshRef.current.rotation.x += delta * 0.15;
+    meshRef.current.rotation.y += delta * 0.2;
+  });
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-60"
-    />
+    <Float speed={1.5} rotationIntensity={0.6} floatIntensity={0.8}>
+      <mesh ref={meshRef} position={position} rotation={rotation} scale={scale}>
+        {geometryType === 'octahedron' && <octahedronGeometry args={[1, 0]} />}
+        {geometryType === 'icosahedron' && <icosahedronGeometry args={[1, 0]} />}
+        {geometryType === 'box' && <boxGeometry args={[1.2, 1.2, 1.2]} />}
+        <meshPhysicalMaterial
+          color="#8C9BFF"
+          emissive="#1E2340"
+          emissiveIntensity={0.15}
+          roughness={0.25}
+          metalness={0.1}
+          transmission={0.6}
+          thickness={0.8}
+          transparent
+          opacity={0.35}
+          wireframe={false}
+        />
+      </mesh>
+    </Float>
+  );
+};
+
+// Mouse Parallax Controller
+const ParallaxRig: React.FC = () => {
+  useFrame((state) => {
+    // Gentle mouse parallax smoothly interpolating camera
+    const targetX = (state.pointer.x * 0.8);
+    const targetY = (state.pointer.y * 0.5);
+    state.camera.position.x = THREE.MathUtils.lerp(state.camera.position.x, targetX, 0.05);
+    state.camera.position.y = THREE.MathUtils.lerp(state.camera.position.y, targetY, 0.05);
+    state.camera.lookAt(0, 0, 0);
+  });
+  return null;
+};
+
+// Subtle ambient particle dust
+const AmbientDust: React.FC = () => {
+  const pointsRef = useRef<THREE.Points>(null);
+  const count = 35;
+  const [positions] = useState(() => {
+    const pos = new Float32Array(count * 3);
+    for (let i = 0; i < count * 3; i += 3) {
+      pos[i] = (Math.random() - 0.5) * 16;
+      pos[i + 1] = (Math.random() - 0.5) * 8;
+      pos[i + 2] = (Math.random() - 0.5) * 6;
+    }
+    return pos;
+  });
+
+  useFrame((state, delta) => {
+    if (!pointsRef.current) return;
+    pointsRef.current.rotation.y += delta * 0.02;
+  });
+
+  return (
+    <points ref={pointsRef}>
+      <bufferGeometry>
+        <bufferAttribute
+          attach="attributes-position"
+          args={[positions, 3]}
+        />
+      </bufferGeometry>
+      <pointsMaterial
+        size={0.06}
+        color="#7986CB"
+        transparent
+        opacity={0.4}
+        blending={THREE.AdditiveBlending}
+      />
+    </points>
+  );
+};
+
+interface ThreeCanvasProps {
+  className?: string;
+}
+
+export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({ className = '' }) => {
+  const [hasWebGL, setHasWebGL] = useState(true);
+
+  useEffect(() => {
+    try {
+      const canvas = document.createElement('canvas');
+      const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      if (!gl) {
+        setHasWebGL(false);
+      }
+    } catch {
+      setHasWebGL(false);
+    }
+  }, []);
+
+  if (!hasWebGL) {
+    // Graceful fallback for non-WebGL environments
+    return (
+      <div
+        className={`absolute inset-0 pointer-events-none bg-gradient-to-tr from-indigo-950/20 via-transparent to-slate-900/40 ${className}`}
+      />
+    );
+  }
+
+  return (
+    <div className={`absolute inset-0 pointer-events-none overflow-hidden ${className}`}>
+      <Canvas
+        camera={{ position: [0, 0, 6], fov: 45 }}
+        gl={{ alpha: true, antialias: true, powerPreference: 'low-power' }}
+        style={{ background: 'transparent' }}
+      >
+        <ambientLight intensity={0.4} color="#C5CEE0" />
+        <directionalLight position={[4, 5, 3]} intensity={0.6} color="#8C9BFF" />
+        <directionalLight position={[-4, -3, -2]} intensity={0.2} color="#4A5568" />
+
+        <ParallaxRig />
+        <AmbientDust />
+
+        {/* Soft floating glass shapes with muted indigo highlights */}
+        <GlassFacet position={[-3.2, 0.8, -1]} rotation={[0.4, 0.2, 0.5]} scale={1.1} geometryType="octahedron" />
+        <GlassFacet position={[3.4, -0.6, -0.5]} rotation={[0.6, 0.8, 0.1]} scale={1.2} geometryType="icosahedron" />
+        <GlassFacet position={[-1.2, -1.2, 0.5]} rotation={[0.2, 0.5, 0.3]} scale={0.8} geometryType="box" />
+        <GlassFacet position={[1.8, 1.4, -0.8]} rotation={[0.8, 0.3, 0.6]} scale={0.9} geometryType="octahedron" />
+      </Canvas>
+    </div>
   );
 };

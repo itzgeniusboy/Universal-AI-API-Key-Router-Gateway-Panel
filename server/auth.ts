@@ -1,4 +1,7 @@
 import crypto from 'crypto';
+import type { Express } from 'express';
+import passport from 'passport';
+import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { getDatabase } from './db';
 import { routerStore } from './store';
 
@@ -76,4 +79,50 @@ export function createOrUpdateGoogleUser(profile: {
     name: profile.name,
     avatar: profile.avatar,
   };
+}
+
+export function configurePassport(app: Express) {
+  passport.serializeUser((user: any, done) => {
+    done(null, user.userId || user.id);
+  });
+
+  passport.deserializeUser((id: string, done) => {
+    try {
+      const user = getUserById(id);
+      done(null, user || null);
+    } catch (err) {
+      done(err, null);
+    }
+  });
+
+  const clientID = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const callbackURL = process.env.GOOGLE_CALLBACK_URL || '/auth/google/callback';
+
+  if (clientID && clientSecret) {
+    passport.use(
+      new GoogleStrategy(
+        {
+          clientID,
+          clientSecret,
+          callbackURL,
+        },
+        async (accessToken, refreshToken, profile, done) => {
+          try {
+            const email = profile.emails?.[0]?.value;
+            if (!email) {
+              return done(new Error('No email found in Google profile'), undefined);
+            }
+            const name = profile.displayName || email.split('@')[0];
+            const avatar = profile.photos?.[0]?.value;
+
+            const user = createOrUpdateGoogleUser({ email, name, avatar });
+            return done(null, user);
+          } catch (err) {
+            return done(err as Error, undefined);
+          }
+        }
+      )
+    );
+  }
 }

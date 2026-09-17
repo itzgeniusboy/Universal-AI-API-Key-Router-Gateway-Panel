@@ -2,20 +2,41 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
+import session from 'express-session';
+import passport from 'passport';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { createOrUpdateGoogleUser, getUserByEmail, getUserById } from './server/auth';
+import { configurePassport, createOrUpdateGoogleUser, getUserByEmail, getUserById } from './server/auth';
 import { dispatchAiRequest } from './server/router';
-import { maskApiKey, routerStore } from './server/store';
+import { decryptKey, maskApiKey, routerStore } from './server/store';
+import { executeProviderCall, AuthError, RateLimitError, ProviderError } from './server/providers/index.ts';
+import { DEFAULT_PROVIDER_MODELS } from './server/providers/constants';
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Session and Passport configuration
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || 'ai-router-secure-session-key-32chars',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: false, // compatible with HTTP dev preview and HTTPS
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    },
+  })
+);
+
+configurePassport(app);
+app.use(passport.initialize());
+app.use(passport.session());
 
 // Task 6: Basic rate-limiting on public gateway endpoints to prevent abuse
 const routerRateLimiter = rateLimit({
@@ -34,7 +55,9 @@ const routerRateLimiter = rateLimit({
 // Middleware to extract user session or authorization
 app.use((req, res, next) => {
   const sessionUserHeader = req.headers['x-user-id'] as string;
-  if (sessionUserHeader) {
+  if (req.user && (req.user as any).userId) {
+    (req as any).userId = (req.user as any).userId;
+  } else if (sessionUserHeader) {
     (req as any).userId = sessionUserHeader;
   } else {
     (req as any).userId = 'default-user';
@@ -54,12 +77,41 @@ app.get('/api/health', (req, res) => {
 });
 
 // --- Auth Endpoints (Task 3: Google OAuth & Gmail tagging) ---
+app.get('/auth/google', (req, res, next) => {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return res.redirect('/?auth_error=missing_google_client_id');
+  }
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+});
+
+app.get(
+  '/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: '/?auth_error=oauth_failed' }),
+  (req, res) => {
+    res.redirect('/');
+  }
+);
+
+app.post('/api/auth/logout', (req, res, next) => {
+  req.logout((err) => {
+    if (err) return next(err);
+    req.session.destroy(() => {
+      res.json({ success: true, message: 'Logged out successfully' });
+    });
+  });
+});
+
 app.get('/api/auth/session', (req, res) => {
+  let user = (req.user as any) || null;
   const userId = (req as any).userId || 'default-user';
-  let user = getUserById(userId);
+
+  if (!user && userId) {
+    user = getUserById(userId);
+  }
+
   if (!user && userId === 'default-user') {
     const defaultAccounts = routerStore.getGmailAccounts('default-user');
-    const primaryEmail = defaultAccounts[0]?.email || 'developer@gmail.com';
+    const primaryEmail = defaultAccounts[0]?.email || 'admin@gateway.internal';
     user = {
       userId: 'default-user',
       email: primaryEmail,
@@ -86,6 +138,7 @@ app.post('/api/auth/connect', (req, res) => {
     avatar,
   });
 
+  (req.session as any).userId = user.userId;
   res.json({ success: true, user });
 });
 
@@ -111,6 +164,7 @@ app.post('/api/auth/google/credential', async (req, res) => {
       avatar: googleProfile.picture,
     });
 
+    (req.session as any).userId = user.userId;
     res.json({ success: true, user });
   } catch (err: any) {
     res.status(400).json({ success: false, error: 'Failed to verify Google token: ' + err.message });
@@ -176,23 +230,78 @@ app.post('/api/keys/:id/test', async (req, res) => {
     return res.status(404).json({ success: false, error: 'Key not found' });
   }
 
+  const rawKey = decryptKey(key.encryptedKey);
   const start = Date.now();
-  await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 120) + 60));
-  const latency = Date.now() - start;
 
-  routerStore.updateKey(key.id, {
-    status: 'active',
-    lastLatencyMs: latency,
-    cooldownUntil: null,
-  });
+  const isPlaceholderSample =
+    rawKey.includes('sample') ||
+    rawKey.includes('DemoSample') ||
+    rawKey.length < 10;
 
-  res.json({
-    success: true,
-    message: 'Key verified and latency recorded',
-    latencyMs: latency,
-    keyId: key.id,
-    provider: key.provider,
-  });
+  if (isPlaceholderSample) {
+    const latency = Math.floor(Math.random() * 80) + 40;
+    routerStore.updateKey(key.id, {
+      status: 'active',
+      lastLatencyMs: latency,
+      cooldownUntil: null,
+    });
+    return res.json({
+      success: true,
+      message: `Demo key verified (${key.provider} sandbox simulation)`,
+      latencyMs: latency,
+      keyId: key.id,
+      provider: key.provider,
+      simulated: true,
+    });
+  }
+
+  try {
+    const model = DEFAULT_PROVIDER_MODELS[key.provider] || 'gpt-4o';
+    const testResult = await executeProviderCall(key.provider, {
+      apiKey: rawKey,
+      model,
+      messages: [{ role: 'user', content: 'Ping. Reply with ok.' }],
+      max_tokens: 5,
+      customBaseUrl: key.customBaseUrl,
+      customAuthHeader: key.customAuthHeader,
+    });
+
+    const latency = Date.now() - start;
+    routerStore.updateKey(key.id, {
+      status: 'active',
+      lastLatencyMs: latency,
+      cooldownUntil: null,
+    });
+
+    return res.json({
+      success: true,
+      message: `Key successfully verified against live ${key.provider} API (${testResult.model})`,
+      latencyMs: latency,
+      keyId: key.id,
+      provider: key.provider,
+      modelUsed: testResult.model,
+    });
+  } catch (err: any) {
+    const latency = Date.now() - start;
+    const isAuthErr = err instanceof AuthError || err.statusCode === 401 || err.statusCode === 403;
+    const isRateLimit = err instanceof RateLimitError || err.statusCode === 429;
+    const newStatus = isAuthErr ? 'invalid' : isRateLimit ? 'rate-limited' : 'error';
+
+    routerStore.updateKey(key.id, {
+      status: newStatus,
+      lastLatencyMs: latency,
+      cooldownUntil: isRateLimit ? new Date(Date.now() + 60000).toISOString() : null,
+    });
+
+    return res.status(isAuthErr ? 401 : isRateLimit ? 429 : 502).json({
+      success: false,
+      error: err.message || 'Key validation failed against upstream provider',
+      status: newStatus,
+      latencyMs: latency,
+      keyId: key.id,
+      provider: key.provider,
+    });
+  }
 });
 
 // --- Master Router Tokens ---
@@ -367,7 +476,7 @@ app.post('/api/v1/route', routerRateLimiter, async (req, res) => {
 // --- OPENAI-COMPATIBLE ENDPOINT (POST /api/v1/chat/completions) ---
 app.post('/api/v1/chat/completions', routerRateLimiter, async (req, res) => {
   const authHeader = req.headers.authorization;
-  const { model, messages, temperature, max_tokens, stream } = req.body;
+  const { model, messages, temperature, max_tokens, stream, simulateRateLimitOnFirst, gmailFilter } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({
@@ -385,6 +494,8 @@ app.post('/api/v1/chat/completions', routerRateLimiter, async (req, res) => {
     temperature,
     max_tokens,
     stream: Boolean(stream),
+    simulateRateLimitOnFirst: Boolean(simulateRateLimitOnFirst),
+    gmailFilter,
     endpoint: '/api/v1/chat/completions',
     authHeader,
   });
@@ -478,15 +589,16 @@ async function start() {
     });
   }
 
-  if (process.env.VERCEL !== '1') {
+  // Refactor start() so when process.env.VERCEL is set, it exports the Express app instead of calling .listen()
+  if (!process.env.VERCEL) {
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`[Universal AI Router] Server listening on http://0.0.0.0:${PORT}`);
     });
   }
 }
 
-// Launch server if not imported as serverless handler
-if (process.env.VERCEL !== '1') {
+// Launch server only for local / non-Vercel runs
+if (!process.env.VERCEL) {
   start().catch((err) => {
     console.error('Failed to start server:', err);
     process.exit(1);

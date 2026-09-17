@@ -308,10 +308,7 @@ export const KeyVaultView: React.FC<Props> = ({
 
                   {/* Priority and Status Badges */}
                   <div className="flex items-center space-x-2">
-                    <div
-                      className="group relative cursor-help"
-                      title="Rotation Priority: Lower number = tried first during request rotation and continuous flow failover"
-                    >
+                    <div className="group relative cursor-help">
                       <span
                         className={`inline-flex items-center space-x-1 rounded-md px-2 py-0.5 text-[10px] font-semibold tracking-wide ${
                           key.priority === 1
@@ -323,6 +320,16 @@ export const KeyVaultView: React.FC<Props> = ({
                       >
                         <span>P{key.priority}</span>
                       </span>
+
+                      {/* Floating hover tooltip */}
+                      <div className="pointer-events-none absolute right-0 top-full z-50 mt-1 w-64 rounded-xl border border-white/[0.12] bg-[#14161A] p-2.5 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100 group-hover:pointer-events-auto">
+                        <p className="font-semibold text-white mb-0.5">Priority Tier: P{key.priority}</p>
+                        <p className="text-[11px] leading-relaxed text-[#9DA8BE]">
+                          {key.priority === 1
+                            ? 'Tier 1 Primary: Routed first during normal execution. Preferred if healthy.'
+                            : `Tier ${key.priority} Backup: Automatically engaged with zero client drop if P${key.priority - 1} encounters rate limits.`}
+                        </p>
+                      </div>
                     </div>
 
                     <span
@@ -574,16 +581,21 @@ export const KeyVaultView: React.FC<Props> = ({
 
               {/* Priority Selection with Tooltips */}
               <div>
-                <div className="flex items-center space-x-1">
+                <div className="flex items-center space-x-1.5">
                   <label className="block text-xs font-medium text-[#C5CEE0]">
                     Rotation Priority / Weight
                   </label>
-                  <span
-                    className="cursor-help text-[#6C768A] hover:text-white"
-                    title="Priority: Lower numbers are queried first. Higher numbers act as fallback backups."
-                  >
-                    <HelpCircle className="h-3.5 w-3.5" />
-                  </span>
+                  <div className="group relative cursor-help">
+                    <HelpCircle className="h-3.5 w-3.5 text-[#5B6CFF]/80 group-hover:text-[#8C9BFF] transition-colors" />
+                    <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-white/[0.12] bg-[#14161A] p-3 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100 group-hover:pointer-events-auto">
+                      <p className="font-semibold text-white mb-1">Rotation Priority Tiers</p>
+                      <p className="text-[11px] leading-relaxed text-[#9DA8BE]">
+                        <strong className="text-white">P1 (Primary):</strong> First line of routing. Requests use healthy P1 keys.<br />
+                        <strong className="text-white">P2 (Secondary):</strong> Standby backup if P1 keys hit rate limits or downtime.<br />
+                        <strong className="text-white">P3 (Emergency):</strong> Ultimate fallback pool for 100% zero-drop uptime.
+                      </p>
+                    </div>
+                  </div>
                 </div>
                 <div className="mt-1.5 grid grid-cols-3 gap-2">
                   {[

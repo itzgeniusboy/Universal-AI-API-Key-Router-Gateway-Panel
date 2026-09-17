@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Activity,
   ArrowRight,
@@ -8,6 +8,7 @@ import {
   Flame,
   Globe,
   HardDrive,
+  HelpCircle,
   Key,
   Layers,
   RefreshCw,
@@ -17,6 +18,7 @@ import {
 import { PROVIDERS } from '../data/providers';
 import { ApiKeyItem, ProviderId, RouterSettings, UsageLog } from '../types';
 import { ProviderIcon } from './ProviderIcon';
+import { ThreeCanvas } from './ThreeCanvas';
 
 interface Props {
   keys: ApiKeyItem[];
@@ -60,6 +62,8 @@ export const OverviewView: React.FC<Props> = ({
     <div className="space-y-6">
       {/* Top Hero / Gateway Status Banner */}
       <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-br from-[#121620] via-[#10131A] to-[#0D0F14] p-6 shadow-xl">
+        {/* Animated 3D background behind dashboard hero only */}
+        <ThreeCanvas className="opacity-75" />
         <div className="relative z-10 flex flex-col justify-between gap-6 md:flex-row md:items-center">
           <div>
             <div className="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-[#5B6CFF]">
@@ -306,14 +310,25 @@ export const OverviewView: React.FC<Props> = ({
               </p>
             </div>
 
-            <div className="flex items-center justify-between rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
+            <div className="group relative flex items-center justify-between rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
               <div className="flex items-center space-x-2">
                 <RefreshCw className="h-4 w-4 text-[#5B6CFF]" />
                 <span className="text-xs font-medium text-white">Auto-Rotation Strategy</span>
+                <HelpCircle className="h-3.5 w-3.5 text-[#5B6CFF]/60 group-hover:text-[#8C9BFF] transition-colors" />
               </div>
               <span className="rounded-md bg-[#5B6CFF]/20 px-2 py-0.5 text-xs font-medium capitalize text-[#8C9BFF]">
                 {settings.rotationStrategy.replace('-', ' ')}
               </span>
+
+              {/* Hover Tooltip explaining Rotation Strategy */}
+              <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-72 -translate-x-1/2 rounded-xl border border-white/[0.12] bg-[#14161A] p-3 text-xs text-[#C5CEE0] opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover:opacity-100 group-hover:pointer-events-auto">
+                <p className="font-semibold text-white mb-1 flex items-center gap-1.5">
+                  <RefreshCw className="h-3.5 w-3.5 text-[#5B6CFF]" /> Rotation Strategy
+                </p>
+                <p className="leading-relaxed text-[11px] text-[#9DA8BE]">
+                  Defines how client requests are distributed across active keys. <strong className="text-white">Priority-First</strong> exhausts Tier 1 keys before falling back. <strong className="text-white">Round-Robin</strong> alternates evenly to prevent provider throttling. <strong className="text-white">Least-Latency</strong> dynamically selects the lowest ping key.
+                </p>
+              </div>
             </div>
           </div>
         </div>

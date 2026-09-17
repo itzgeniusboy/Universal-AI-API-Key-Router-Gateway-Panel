@@ -18,6 +18,7 @@ export interface DispatchParams {
   max_tokens?: number;
   authHeader?: string;
   simulateRateLimitOnFirst?: boolean;
+  gmailFilter?: string;
   endpoint?: string;
   userId?: string;
 }

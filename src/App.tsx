@@ -5,7 +5,6 @@ import { Navbar } from './components/Navbar';
 import { OverviewView } from './components/OverviewView';
 import { RouterTokensView } from './components/RouterTokensView';
 import { SettingsView } from './components/SettingsView';
-import { ThreeCanvas } from './components/ThreeCanvas';
 import { UsageLogsView } from './components/UsageLogsView';
 import {
   ApiKeyItem,
@@ -232,22 +231,18 @@ export default function App() {
 
   return (
     <div className="relative min-h-screen bg-[#0B0D10] text-[#E1E4EA]">
-      {/* 3D Glass Prism Floating Canvas Background Header Section */}
-      <div className="relative overflow-hidden">
-        <ThreeCanvas />
-        <Navbar
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          gmailAccounts={gmailAccounts}
-          selectedGmail={selectedGmail}
-          setSelectedGmail={setSelectedGmail}
-          onOpenAddKey={() => setIsAddKeyModalOpen(true)}
-          onOpenAddGmail={() => setActiveTab('settings')}
-          totalKeysCount={keys.length}
-          user={user}
-          onConnectGoogle={handleConnectGoogle}
-        />
-      </div>
+      <Navbar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        gmailAccounts={gmailAccounts}
+        selectedGmail={selectedGmail}
+        setSelectedGmail={setSelectedGmail}
+        onOpenAddKey={() => setIsAddKeyModalOpen(true)}
+        onOpenAddGmail={() => setActiveTab('settings')}
+        totalKeysCount={keys.length}
+        user={user}
+        onConnectGoogle={handleConnectGoogle}
+      />
 
       {/* Main Content Area - Clean, Flat, High-Legibility Data Views */}
       <div className="relative z-10 flex min-h-[calc(100vh-120px)] flex-col">
