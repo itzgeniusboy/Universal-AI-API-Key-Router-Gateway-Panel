@@ -470,7 +470,7 @@ export const KeyVaultView: React.FC<Props> = ({
 
       {/* ADD KEY MODAL */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-[2px]">
           <div className="my-auto flex w-full max-w-lg max-h-[90vh] flex-col rounded-2xl border border-white/[0.1] bg-[#14161A] shadow-2xl backdrop-blur-xl">
             <div className="flex items-center justify-between border-b border-white/[0.08] p-5 pb-4 shrink-0">
               <div className="flex items-center space-x-2">
@@ -677,7 +677,7 @@ export const KeyVaultView: React.FC<Props> = ({
 
       {/* EDIT KEY MODAL */}
       {editingKey && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-[2px]">
           <div className="my-auto w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#14161A] p-6 shadow-2xl">
             <h3 className="font-semibold text-white">Edit Key Configuration</h3>
             <p className="text-xs text-[#8A94A6]">Update label, Gmail tag, or rotation priority</p>

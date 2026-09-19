@@ -17,6 +17,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { GmailAccount, UserProfile } from '../types';
+import { GoogleAuthModal } from './GoogleAuthModal';
 
 interface Props {
   activeTab: 'overview' | 'keys' | 'simulator' | 'tokens' | 'logs' | 'settings';
@@ -45,8 +46,6 @@ export const Navbar: React.FC<Props> = ({
 }) => {
   const [gmailDropdownOpen, setGmailDropdownOpen] = useState(false);
   const [googleModalOpen, setGoogleModalOpen] = useState(false);
-  const [googleEmailInput, setGoogleEmailInput] = useState('');
-  const [googleNameInput, setGoogleNameInput] = useState('');
   const [copiedToken, setCopiedToken] = useState(false);
 
   const currentAccount = gmailAccounts.find((a) => a.email === selectedGmail);
@@ -57,15 +56,10 @@ export const Navbar: React.FC<Props> = ({
     setTimeout(() => setCopiedToken(false), 2000);
   };
 
-  const handleGoogleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!googleEmailInput.trim()) return;
+  const handleGoogleSubmit = async (email: string, name?: string) => {
     if (onConnectGoogle) {
-      await onConnectGoogle(googleEmailInput.trim(), googleNameInput.trim());
+      await onConnectGoogle(email, name);
     }
-    setGoogleEmailInput('');
-    setGoogleNameInput('');
-    setGoogleModalOpen(false);
   };
 
   return (
@@ -237,77 +231,14 @@ export const Navbar: React.FC<Props> = ({
         </nav>
       </div>
 
-      {/* GOOGLE ACCOUNT CONNECTION MODAL */}
-      {googleModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-md">
-          <div className="my-auto w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/[0.1] bg-[#14161A] p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-              <div className="flex items-center space-x-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#5B6CFF]/20 text-[#5B6CFF]">
-                  <Globe className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-white">Google Account Authentication</h3>
-                  <p className="text-[11px] text-[#8A94A6]">Sign in & attach Gmail tag for key routing</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setGoogleModalOpen(false)}
-                className="text-xs text-[#8A94A6] hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleGoogleSubmit} className="mt-4 space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-[#C5CEE0]">Google / Gmail Address</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="e.g. dev.account@gmail.com"
-                  value={googleEmailInput}
-                  onChange={(e) => setGoogleEmailInput(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-[#C5CEE0]">Display Name / Workspace</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Production Lead"
-                  value={googleNameInput}
-                  onChange={(e) => setGoogleNameInput(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-white/[0.08] bg-[#0B0D10] px-3 py-2 text-xs text-white placeholder-[#6C768A] focus:border-[#5B6CFF] focus:outline-none"
-                />
-              </div>
-
-              <div className="rounded-xl border border-white/[0.06] bg-[#0B0D10]/50 p-3 text-xs text-[#8A94A6]">
-                <p className="leading-relaxed">
-                  Keys tagged under this Gmail account will be isolated and prioritized when requests specify this identity.
-                </p>
-              </div>
-
-              <div className="mt-6 flex justify-end space-x-3 border-t border-white/[0.06] pt-4">
-                <button
-                  type="button"
-                  onClick={() => setGoogleModalOpen(false)}
-                  className="rounded-xl border border-white/[0.08] bg-[#141822] px-4 py-2 text-xs font-medium text-[#8A94A6] hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="rounded-xl bg-[#5B6CFF] px-4 py-2 text-xs font-medium text-white hover:bg-[#4E5EEB]"
-                >
-                  Authenticate & Link Gmail
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* GOOGLE ACCOUNT AUTHENTICATION PORTAL MODAL (Uses createPortal with z-[100] to always float on top) */}
+      <GoogleAuthModal
+        isOpen={googleModalOpen}
+        onClose={() => setGoogleModalOpen(false)}
+        onConnect={handleGoogleSubmit}
+        currentUser={user}
+        existingAccounts={gmailAccounts}
+      />
     </header>
   );
 };
